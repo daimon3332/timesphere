@@ -223,10 +223,11 @@ export function zoneLabel(timezone: string): { titleZh: string; subtitleZh: stri
     return { titleZh: `${formatOffset(offset)} 海域`, subtitleZh: '公海 / 航海时区' }
   }
   // Unseeded zone: the id's region prefix ("Asia") is not a country, so show
-  // the live offset instead of presenting a continent as a place name.
+  // the live offset instead of presenting a continent as a place name. The raw
+  // id is omitted here because callers render it on its own line.
   return {
     titleZh: timezone.split('/').pop()!.replace(/_/g, ' '),
-    subtitleZh: `${timezone} · ${formatOffset(offsetMinutes(timezone, new Date()))}`,
+    subtitleZh: formatOffset(offsetMinutes(timezone, new Date())),
   }
 }
 

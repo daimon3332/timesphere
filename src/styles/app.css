@@ -934,6 +934,9 @@ kbd {
   right: 14px;
   z-index: 7;
   width: 296px;
+  /* Capped to the map area at runtime; scroll rather than clip when it is short. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 14px;
   background: var(--surface);
   border: 1px solid var(--border-strong);

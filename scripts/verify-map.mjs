@@ -7,10 +7,11 @@
  * Usage: node scripts/verify-map.mjs [url] [screenshot.png]
  */
 import { spawn } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import { existsSync, globSync, mkdtempSync, rmSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 
 const URL_UNDER_TEST = process.argv[2] ?? 'http://localhost:4174/'
 
@@ -38,7 +39,7 @@ const profile = mkdtempSync(join(tmpdir(), 'tsphere-'))
 
 // On Windows the launcher process exits immediately while the real browser
 // keeps running, so the ws endpoint is discovered over HTTP rather than stderr.
-spawn(
+const child = spawn(
   CHROME,
   [
     '--headless=new',
@@ -55,7 +56,70 @@ spawn(
     'about:blank',
   ],
   { stdio: 'ignore', detached: true },
-).unref()
+)
+child.unref()
+
+/**
+ * Cleanup must survive throws and signals, not just the happy path: a leaked
+ * headless Chrome keeps the CDP port bound and its profile dir costs ~30MB.
+ * Windows also holds file locks briefly after close, so removal is retried.
+ */
+let cleanedUp = false
+function cleanup() {
+  if (cleanedUp) return
+  cleanedUp = true
+  try {
+    if (process.platform === 'win32') {
+      // Chrome's launcher exits and re-spawns the browser outside the original
+      // process tree, so taskkill /T /PID cannot reach it. The mkdtemp profile
+      // path is unique per run, making it a safe and precise kill filter that
+      // never touches a concurrent run or the user's own Chrome.
+      // Match on the mkdtemp basename only: it is random alphanumerics, so it
+      // carries no PowerShell -like wildcards ([ ] * ?) that a full temp path
+      // (which embeds the username) could.
+      const literal = `'${basename(profile).replace(/'/g, "''")}'`
+      spawnSync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-Command',
+          `Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" |` +
+            ` Where-Object { $_.CommandLine -like ('*' + ${literal} + '*') } |` +
+            ` ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
+        ],
+        { stdio: 'ignore' },
+      )
+    } else {
+      process.kill(-child.pid, 'SIGKILL')
+    }
+  } catch {}
+  for (let i = 0; i < 10; i++) {
+    try {
+      rmSync(profile, { recursive: true, force: true })
+      break
+    } catch {
+      spawnSync(process.execPath, ['-e', 'setTimeout(() => {}, 200)'], { stdio: 'ignore' })
+    }
+  }
+}
+
+process.on('exit', cleanup)
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(sig, () => {
+    cleanup()
+    process.exit(130)
+  })
+}
+process.on('uncaughtException', (err) => {
+  console.error(err)
+  cleanup()
+  process.exit(1)
+})
+process.on('unhandledRejection', (err) => {
+  console.error(err)
+  cleanup()
+  process.exit(1)
+})
 
 const endpoint = await (async () => {
   for (let i = 0; i < 40; i++) {
@@ -249,9 +313,12 @@ if (snap?.state === 'ok' || snap?.canvasProof) {
         const el = document.querySelector('.detail')
         if (!el) return JSON.stringify({ open: false })
         const r = el.getBoundingClientRect()
+        const h = el.parentElement.getBoundingClientRect()
         return JSON.stringify({ open: true, x: Math.round(r.left), y: Math.round(r.top),
           pw: Math.round(r.width), ph: Math.round(r.height),
           vh: window.innerHeight, vw: window.innerWidth,
+          host: { left: Math.round(h.left), top: Math.round(h.top),
+                  right: Math.round(h.right), bottom: Math.round(h.bottom) },
           vis: getComputedStyle(el).visibility })
       })()`,
       returnByValue: true,
@@ -276,10 +343,37 @@ if (snap?.state === 'ok' || snap?.canvasProof) {
     await mouse('mouseReleased', hx - 200, hy - 90)
     await new Promise((r) => setTimeout(r, 250))
     const after = await readPanel()
+
+    // The panel usually opens flush against the top edge, so an upward drag is
+    // legitimately clamped to zero. Drag DOWN to prove vertical freedom exists.
+    const slack = Math.round(after.host.bottom - after.y - after.ph)
+    const dy = Math.min(60, Math.max(0, slack - 20))
+    let movedDownY = null
+    if (dy > 0) {
+      const dx0 = after.x + Math.round(after.pw / 2)
+      const dy0 = after.y + 16
+      await mouse('mousePressed', dx0, dy0)
+      await mouse('mouseMoved', dx0, dy0 + dy)
+      await mouse('mouseReleased', dx0, dy0 + dy)
+      await new Promise((r) => setTimeout(r, 250))
+      const down = await readPanel()
+      movedDownY = down.open ? down.y - after.y : null
+    }
+    // The panel is fixed-positioned but belongs to the map section, so it must
+    // never overlap the city grid above it.
+    const within = (p) =>
+      p.open &&
+      p.y >= p.host.top - 1 &&
+      p.y + p.ph <= p.host.bottom + 1 &&
+      p.x >= p.host.left - 1 &&
+      p.x + p.pw <= p.host.right + 1
     panel = {
       state: 'checked',
       visibility: before.vis,
       anchoredNearClick: anchored,
+      insideMapOnOpen: within(before),
+      insideMapAfterDrag: within(after),
+      host: before.host,
       click: pt,
       panelSize: { w: before.pw, h: before.ph },
       viewport: { w: before.vw, h: before.vh },
@@ -288,6 +382,7 @@ if (snap?.state === 'ok' || snap?.canvasProof) {
       after: { x: after.x, y: after.y },
       movedX: after.open ? after.x - before.x : null,
       movedY: after.open ? after.y - before.y : null,
+      movedDownY,
     }
   } else {
     panel = { state: 'no-panel', click: pt }
@@ -320,7 +415,6 @@ try {
 try {
   ws.close()
 } catch {}
-try {
-  rmSync(profile, { recursive: true, force: true })
-} catch {}
+// The 'exit' handler runs cleanup(); it is idempotent, so a graceful close
+// here plus the handler covers both normal and abnormal termination.
 process.exit(rendered ? 0 : 1)

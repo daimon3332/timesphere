@@ -246,6 +246,15 @@ describe('nautical Etc/GMT zones', () => {
     for (const c of CITIES) expect(isNauticalZone(c.timezone), c.nameZh).toBe(false)
   })
 
+  it('keeps the raw id out of an unseeded zone subtitle', () => {
+    // The detail panel renders the id on its own line, so repeating it in the
+    // subtitle showed "Africa/Bamako" twice.
+    const label = zoneLabel('Africa/Bamako')
+    expect(label.titleZh).toBe('Bamako')
+    expect(label.subtitleZh).not.toContain('Africa/Bamako')
+    expect(label.subtitleZh).toBe('UTC')
+  })
+
   it('derives an ocean zone from longitude with the POSIX sign inverted', () => {
     // The polygon data is land-clipped, so open water is answered by the 15°
     // nautical meridian bands. Etc/GMT signs are inverted: UTC-9 is Etc/GMT+9.

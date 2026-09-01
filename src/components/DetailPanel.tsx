@@ -24,6 +24,19 @@ function commonNames(timezone: string): string {
   return [...hits].join(' / ')
 }
 
+const EDGE = 14
+
+/** Map-section bounds, intersected with the viewport. */
+function hostBounds(el: HTMLElement | null) {
+  const host = el?.parentElement?.getBoundingClientRect()
+  return {
+    left: Math.max(host?.left ?? 0, 0),
+    top: Math.max(host?.top ?? 0, 0),
+    right: Math.min(host?.right ?? window.innerWidth, window.innerWidth),
+    bottom: Math.min(host?.bottom ?? window.innerHeight, window.innerHeight),
+  }
+}
+
 export const DetailPanel = memo(function DetailPanel({ now, timezone, onClose, clickPosition }: Props) {
   const baseTimezone = useStore((s) => s.baseTimezone)
   const setBase = useStore((s) => s.setBase)
@@ -35,16 +48,37 @@ export const DetailPanel = memo(function DetailPanel({ now, timezone, onClose, c
   const [isDragging, setIsDragging] = useState(false)
   const dragStartRef = useRef<{ x: number; y: number; initialX: number; initialY: number } | null>(null)
 
-  /** Keep at least EDGE px of the panel reachable, so a drag can never lose it. */
-  const clampToViewport = (x: number, y: number, w: number, h: number) => {
-    const EDGE = 14
-    const maxX = Math.max(EDGE, window.innerWidth - w - EDGE)
-    const maxY = Math.max(EDGE, window.innerHeight - h - EDGE)
+  /**
+   * Keep the panel inside the map area. The panel is fixed-positioned but belongs
+   * to the map section, so clamping to the whole viewport would let it ride up
+   * over the city grid.
+   */
+  const clampToBounds = (x: number, y: number, w: number, h: number) => {
+    const b = hostBounds(panelRef.current)
+    const minX = b.left + EDGE
+    const minY = b.top + EDGE
     return {
-      x: Math.min(Math.max(x, EDGE), maxX),
-      y: Math.min(Math.max(y, EDGE), maxY),
+      x: Math.min(Math.max(x, minX), Math.max(minX, b.right - w - EDGE)),
+      y: Math.min(Math.max(y, minY), Math.max(minY, b.bottom - h - EDGE)),
     }
   }
+
+  /**
+   * Cap the height to the map area before anything measures the panel, otherwise
+   * a panel taller than the map can never satisfy the clamp and loses all
+   * vertical freedom. Declared first so it applies before positioning reads the rect.
+   */
+  useEffect(() => {
+    const el = panelRef.current
+    if (!el) return
+    const apply = () => {
+      const b = hostBounds(el)
+      el.style.maxHeight = `${Math.max(200, b.bottom - b.top - EDGE * 2)}px`
+    }
+    apply()
+    window.addEventListener('resize', apply)
+    return () => window.removeEventListener('resize', apply)
+  }, [])
 
   const info = describeZone(timezone, now, baseTimezone)
   const baseInfo = describeZone(baseTimezone, now, baseTimezone)
@@ -63,15 +97,16 @@ export const DetailPanel = memo(function DetailPanel({ now, timezone, onClose, c
     }
 
     const rect = panelRef.current.getBoundingClientRect()
-    const viewportWidth = window.innerWidth
+    const hostRight = panelRef.current.parentElement?.getBoundingClientRect().right ?? window.innerWidth
+    const limit = Math.min(hostRight, window.innerWidth)
 
     let x = clickPosition.x + 20 // 点击位置右侧 20px
     const y = clickPosition.y - rect.height / 2 // 垂直居中
 
-    // 右侧放不下时翻到左侧，再统一夹进视口
-    if (x + rect.width > viewportWidth - 14) x = clickPosition.x - rect.width - 20
+    // 右侧放不下时翻到左侧，再统一夹进地图区域
+    if (x + rect.width > limit - 14) x = clickPosition.x - rect.width - 20
 
-    setPosition(clampToViewport(x, y, rect.width, rect.height))
+    setPosition(clampToBounds(x, y, rect.width, rect.height))
   }, [clickPosition, timezone])
 
   // 视口缩放后把面板拉回可见区域
@@ -80,7 +115,7 @@ export const DetailPanel = memo(function DetailPanel({ now, timezone, onClose, c
     const onResize = () => {
       const rect = panelRef.current?.getBoundingClientRect()
       if (!rect) return
-      setPosition((p) => (p ? clampToViewport(p.x, p.y, rect.width, rect.height) : p))
+      setPosition((p) => (p ? clampToBounds(p.x, p.y, rect.width, rect.height) : p))
     }
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
@@ -120,7 +155,7 @@ export const DetailPanel = memo(function DetailPanel({ now, timezone, onClose, c
       if (!start || !rect) return
 
       setPosition(
-        clampToViewport(
+        clampToBounds(
           start.initialX + (clientX - start.x),
           start.initialY + (clientY - start.y),
           rect.width,
