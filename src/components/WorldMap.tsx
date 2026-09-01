@@ -1,6 +1,7 @@
 import * as maplibregl from 'maplibre-gl'
 import type { GeoJSONSource, MapGeoJSONFeature } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CITIES } from '../data/cities'
 import { NUMERIC_TO_ALPHA2, COUNTRY_BY_CODE } from '../data/countries'
@@ -29,6 +30,13 @@ import { useStore } from '../store'
 import { CityLabels } from './CityLabels'
 import { MapTooltip, type TooltipData } from './MapTooltip'
 import { UtcRuler } from './UtcRuler'
+
+// maplibre 6.x derives its worker URL from `import.meta.url`, which after
+// bundling points at /assets/index-<hash>.js — so it asks for a sibling
+// maplibre-gl-worker.mjs that Vite never emits. The dev server's SPA fallback
+// answers that 404 with index.html, the worker dies parsing HTML as JS, and
+// every GeoJSON source stays unparsed: a blank ocean in production only.
+maplibregl.setWorkerUrl(maplibreWorkerUrl)
 
 interface Props {
   now: Date
@@ -449,9 +457,12 @@ export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
     }
 
     const onClick = (e: maplibregl.MapMouseEvent) => {
+      // The panel is position: fixed, so it needs viewport coordinates.
+      // e.point is canvas-relative and would be offset by the header height.
+      const at = { x: e.originalEvent.clientX, y: e.originalEvent.clientY }
       const city = cityAt(e)
       if (city) {
-        onSelect(city.properties!.timezone as string, city.properties!.id as string, { x: e.point.x, y: e.point.y })
+        onSelect(city.properties!.timezone as string, city.properties!.id as string, at)
         return
       }
       const country = map.queryRenderedFeatures(e.point, { layers: [LYR_COUNTRY_FILL] }).at(0)
@@ -465,18 +476,18 @@ export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
         }
         if (info && info.zones.length === 1) {
           const z = info.zones[0]!
-          onSelect(z.timezone, z.cityId ?? null, { x: e.point.x, y: e.point.y })
+          onSelect(z.timezone, z.cityId ?? null, at)
           return
         }
       }
       const zone = map.queryRenderedFeatures(e.point, { layers: [LYR_TZ_FILL] }).at(0)
       if (zone) {
         const tz = zone.properties!.tzid as string
-        onSelect(tz, CITY_BY_ZONE.get(tz)?.id ?? null, { x: e.point.x, y: e.point.y })
+        onSelect(tz, CITY_BY_ZONE.get(tz)?.id ?? null, at)
         return
       }
       // Open water: answer from the nautical meridian bands.
-      onSelect(nauticalZoneAt(e.lngLat.lng), null, { x: e.point.x, y: e.point.y })
+      onSelect(nauticalZoneAt(e.lngLat.lng), null, at)
     }
 
     map.on('mousemove', onMove)

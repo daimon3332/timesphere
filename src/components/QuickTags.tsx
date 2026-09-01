@@ -38,18 +38,21 @@ export const QuickTags = memo(function QuickTags({ onSelect }: Props) {
 
   return (
     <div className="quick-tags-wrap">
-      <div className="quick-tags" role="group" aria-label="常用时区快捷标签">
+      <select
+        className="tag-select"
+        aria-label="常用时区快捷选择"
+        value=""
+        onChange={(e) => {
+          if (e.target.value) handle(e.target.value)
+        }}
+      >
+        <option value="">常用时区</option>
         {TAGS.map((t) => (
-          <button
-            key={t.code}
-            className={`tag${open === t.code ? ' is-open' : ''}`}
-            onClick={() => handle(t.code)}
-            aria-expanded={open === t.code}
-          >
+          <option key={t.code} value={t.code}>
             {t.label}
-          </button>
+          </option>
         ))}
-      </div>
+      </select>
 
       {openGroup && (
         <>

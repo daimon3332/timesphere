@@ -104,6 +104,7 @@ export const CityGrid = memo(function CityGrid({ now, onSelect }: Props) {
         </div>
       </div>
 
+      <div className="grid-scroll">
       <div className="city-grid">
         {cities.map((c) => (
           <CityCard
@@ -128,6 +129,7 @@ export const CityGrid = memo(function CityGrid({ now, onSelect }: Props) {
             该分组还没有城市，点击上方 <strong>全部</strong> 查看所有城市。
           </div>
         )}
+      </div>
       </div>
     </section>
   )

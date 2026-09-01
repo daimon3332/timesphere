@@ -23,7 +23,6 @@
 .header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 20px;
   min-height: var(--header-h);
   padding: 12px 18px;
@@ -174,9 +173,10 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 1;
+  /* No max-width: the field takes the whole middle span so the header has no
+     dead gap on either side. */
+  flex: 1 1 auto;
   min-width: 180px;
-  max-width: 400px;
   padding: 8px 10px;
   color: var(--text-3);
   background: var(--surface-hover);
@@ -244,11 +244,18 @@ kbd {
 .quick-tags-wrap {
   position: relative;
 }
-.quick-tags {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-  max-width: 310px;
+.tag-select {
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--text-2);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-btn);
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease);
+}
+.tag-select:hover {
+  border-color: var(--accent);
 }
 .tag {
   padding: 3px 8px;
@@ -343,10 +350,20 @@ kbd {
 }
 
 .grid-section {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  /* 133 cards would otherwise push the map past the fold; cap the list and
+     scroll inside it so the map keeps its place in the first screen. */
+  min-height: 0;
+  max-height: 40vh;
+}
+.grid-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .grid-head {
   display: flex;
@@ -1486,11 +1503,8 @@ kbd {
   .search-trigger {
     min-width: 180px;
   }
-  .quick-tags {
-    max-width: 210px;
-  }
-  .city-grid {
-    max-height: 216px;
+  .grid-section {
+    max-height: 34vh;
   }
 }
 
@@ -1501,9 +1515,6 @@ kbd {
   }
   .header-right {
     flex-wrap: wrap;
-  }
-  .quick-tags {
-    max-width: none;
   }
   .detail {
     width: 268px;
