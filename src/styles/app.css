@@ -358,6 +358,19 @@ kbd {
      scroll inside it so the map keeps its place in the first screen. */
   min-height: 0;
   max-height: 40vh;
+  position: relative;
+}
+/* Without this the capped list clips a card row mid-text and reads as a
+   layout bug rather than as scrollable content. */
+.grid-section::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 22px;
+  background: linear-gradient(to top, var(--bg), transparent);
+  pointer-events: none;
 }
 .grid-scroll {
   flex: 1 1 auto;
@@ -450,7 +463,8 @@ kbd {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
   gap: 8px;
-  /* All cards visible, wrapping naturally; map below the last row. */
+  /* Cards wrap naturally; .grid-section caps the height and scrolls. */
+  padding-bottom: 2px;
 }
 
 .city-card {

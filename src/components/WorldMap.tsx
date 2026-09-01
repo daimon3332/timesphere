@@ -90,23 +90,33 @@ export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
   // ---------------------------------------------------------------- init map
   useEffect(() => {
     if (!holder.current || mapRef.current) return
-    const map = new maplibregl.Map({
-      container: holder.current,
-      style: EMPTY_STYLE,
-      center: [20, 26],
-      zoom: 1.1,
-      minZoom: 0.6,
-      maxZoom: 9,
-      renderWorldCopies: true,
-      attributionControl: false,
-      dragRotate: false,
-      pitchWithRotate: false,
-      maxPitch: 0,
-    })
+
+    // Without WebGL2 the constructor still returns a partially built map whose
+    // handlers are undefined, so guard construction and setup together and fall
+    // back to the error panel instead of throwing during commit.
+    let map: maplibregl.Map
+    try {
+      map = new maplibregl.Map({
+        container: holder.current,
+        style: EMPTY_STYLE,
+        center: [20, 26],
+        zoom: 1.1,
+        minZoom: 0.6,
+        maxZoom: 9,
+        renderWorldCopies: true,
+        attributionControl: false,
+        dragRotate: false,
+        pitchWithRotate: false,
+        maxPitch: 0,
+      })
+      map.touchZoomRotate.disableRotation()
+      map.keyboard.enable()
+    } catch {
+      setLoadError('当前浏览器不支持 WebGL2，无法渲染地图')
+      return
+    }
     mapRef.current = map
     setMapInstance(map)
-    map.touchZoomRotate.disableRotation()
-    map.keyboard.enable()
 
     let cancelled = false
 
@@ -148,7 +158,12 @@ export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
 
         map.addSource(SRC_TZ, { type: 'geojson', data: tzGeo, promoteId: 'tzid' })
         // No generateId: the source already carries numeric ISO ids ("840"),
-        // and generating ids would destroy the country lookup.
+        // and generating ids would destroy the country lookup. A handful of
+        // disputed territories ship without an id, and Ashmore & Cartier
+        // reuses Australia's "036" — both break setFeatureState, so give every
+        // feature a unique id while keeping the ISO code readable in
+        // properties.id for alpha2Of.
+        ensureCountryIds(countryGeo)
         map.addSource(SRC_COUNTRY, { type: 'geojson', data: countryGeo })
         map.addSource(SRC_CITY, { type: 'geojson', data: cityGeo })
         map.addSource(SRC_GRID, { type: 'geojson', data: meridianGrid() })
@@ -395,7 +410,7 @@ export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
         if (hoveredCountry !== country.id) {
           clearCountryHover()
           hoveredCountry = country.id
-          map.setFeatureState({ source: SRC_COUNTRY, id: country.id! }, { hover: true })
+          map.setFeatureState({ source: SRC_COUNTRY, id: country.id }, { hover: true })
         }
         const info = countryTooltip(country, n, base)
         map.getCanvas().style.cursor = info ? 'pointer' : ''
@@ -663,11 +678,32 @@ function stampOffsets(geo: GeoJSON.FeatureCollection, instant: Date) {
   }
 }
 
+/**
+ * Give every country feature a unique numeric id for feature-state lookups.
+ * The original ISO id is preserved in properties.id so country identification
+ * keeps working; ids are assigned above the ISO range to avoid collisions.
+ */
+function ensureCountryIds(geo: GeoJSON.FeatureCollection) {
+  const used = new Set<string | number>()
+  let next = 1000
+  for (const f of geo.features) {
+    if (f.id !== undefined && f.id !== null && f.properties?.['id'] === undefined) {
+      f.properties = { ...f.properties, id: f.id }
+    }
+    if (f.id === undefined || f.id === null || used.has(f.id)) {
+      f.id = next++
+    }
+    used.add(f.id)
+  }
+}
+
 function alpha2Of(f: MapGeoJSONFeature): string | undefined {
   const raw = f.properties?.['iso_a2'] ?? f.properties?.['ISO_A2']
   if (typeof raw === 'string' && raw.length === 2) return raw
-  // world-atlas carries only the numeric ISO id.
-  const numeric = f.id ?? f.properties?.['id']
+  // world-atlas carries only the numeric ISO id. properties.id holds the
+  // original ISO value and wins over f.id, which ensureCountryIds may have
+  // replaced with a synthetic uniquifier.
+  const numeric = f.properties?.['id'] ?? f.id
   if (numeric !== undefined) {
     const key = String(numeric).padStart(3, '0')
     return NUMERIC_TO_ALPHA2[key]
