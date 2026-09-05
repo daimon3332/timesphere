@@ -8,7 +8,7 @@ interface Props {
   now: Date
   mode: 'base' | 'select'
   onClose: () => void
-  onPick: (timezone: string) => void
+  onPick: (timezone: string, cityId?: string) => void
 }
 
 /** Shown before the user types: the highest-priority cities. */
@@ -57,13 +57,13 @@ export const SearchPicker = memo(function SearchPicker({ now, mode, onClose, onP
       setExpanded((prev) => (prev === r.id ? null : r.id))
       return
     }
-    onPick(r.candidates?.[0]?.timezone ?? r.timezone)
+    onPick(r.candidates?.[0]?.timezone ?? r.timezone, r.cityId)
   }
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault()
-      setCursor((c) => Math.min(c + 1, rows.length - 1))
+      setCursor((c) => Math.max(0, Math.min(c + 1, rows.length - 1)))
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
       setCursor((c) => Math.max(c - 1, 0))

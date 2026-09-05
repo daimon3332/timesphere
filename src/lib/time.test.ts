@@ -284,6 +284,19 @@ describe('formatDifference', () => {
 })
 
 describe('instantFromZonedWallClock', () => {
+  it('does not reinterpret years below 100 as 1900-based dates', () => {
+    const instant = instantFromZonedWallClock('UTC', 42, 6, 15, 9, 30)
+    expect(instant.toISOString()).toBe('0042-06-15T09:30:00.000Z')
+    expect(offsetMinutes('UTC', instant)).toBe(0)
+    expect(describeZone('UTC', instant, 'UTC').date).toBe('0042-06-15')
+  })
+
+  it('rejects invalid calendar fields instead of treating them as a DST gap', () => {
+    expect(() => resolveZonedWallClock('UTC', 2026, 2, 30, 10, 0)).toThrow(RangeError)
+    expect(() => resolveZonedWallClock('UTC', 2026, 1, 15, 24, 0)).toThrow(RangeError)
+    expect(() => resolveZonedWallClock('UTC', 2026, 1, 15, 9, 60)).toThrow(RangeError)
+  })
+
   it('round-trips wall clock through a zone', () => {
     // Shanghai 2026-12-25 10:00 -> 2026-12-25T02:00Z
     const d = instantFromZonedWallClock('Asia/Shanghai', 2026, 12, 25, 10, 0)

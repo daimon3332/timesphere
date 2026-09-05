@@ -1,7 +1,6 @@
 .app {
   display: flex;
   flex-direction: column;
-  height: 100%;
   min-height: 100%;
 }
 
@@ -37,6 +36,7 @@
   align-items: center;
   gap: 14px;
   min-width: 0;
+  flex-wrap: wrap;
 }
 .header-right {
   display: flex;
@@ -122,6 +122,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 .tm-switch,
 .mode-switch {
@@ -150,6 +152,8 @@
 .tm-fields {
   display: flex;
   gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 .tm-fields input {
   padding: 5px 8px;
@@ -343,52 +347,33 @@ kbd {
 .main {
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto;
-  min-height: 0;
+  flex: 1 0 auto;
   padding: 12px 18px 14px;
   gap: 12px;
 }
 
 .grid-section {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  /* 133 cards would otherwise push the map past the fold; cap the list and
-     scroll inside it so the map keeps its place in the first screen. */
-  min-height: 0;
-  max-height: 40vh;
-  position: relative;
-}
-/* Without this the capped list clips a card row mid-text and reads as a
-   layout bug rather than as scrollable content. */
-.grid-section::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 22px;
-  background: linear-gradient(to top, var(--bg), transparent);
-  pointer-events: none;
 }
 .grid-scroll {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  flex: 0 0 auto;
 }
 .grid-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  flex-wrap: wrap;
 }
 .filters {
   display: flex;
   gap: 3px;
   overflow-x: auto;
   scrollbar-width: none;
+  max-width: 100%;
 }
 .filters::-webkit-scrollbar {
   display: none;
@@ -463,7 +448,7 @@ kbd {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
   gap: 8px;
-  /* Cards wrap naturally; .grid-section caps the height and scrolls. */
+  /* The map follows all rows in the normal page flow. */
   padding-bottom: 2px;
 }
 
@@ -629,8 +614,8 @@ kbd {
 /* --------------------------------------------------------------------- map */
 .map-section {
   position: relative;
-  flex: 1 1 auto;
-  /* §19: the map is the visual centre — never let it collapse below this. */
+  flex: 0 0 auto;
+  height: 60vh;
   min-height: 420px;
 }
 .map-wrap {
@@ -929,12 +914,12 @@ kbd {
 
 /* ------------------------------------------------------------ detail panel */
 .detail {
-  position: absolute;
+  position: fixed;
   top: 14px;
   right: 14px;
   z-index: 7;
-  width: 296px;
-  /* Capped to the map area at runtime; scroll rather than clip when it is short. */
+  width: min(296px, calc(100vw - 28px));
+  max-height: calc(100dvh - 28px);
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 14px;
@@ -943,11 +928,10 @@ kbd {
   border-radius: var(--r-panel);
   box-shadow: var(--shadow-3);
   animation: panel-in 200ms var(--ease);
-  cursor: move;
-  user-select: none;
 }
 .detail.is-dragging {
   cursor: grabbing;
+  animation: none;
   box-shadow: var(--shadow-3), 0 8px 24px rgba(16, 30, 54, 0.2);
 }
 .detail button,
@@ -959,7 +943,6 @@ kbd {
 @keyframes panel-in {
   from {
     opacity: 0;
-    transform: translateY(-6px);
   }
 }
 .d-head {
@@ -967,6 +950,12 @@ kbd {
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.d-head > div {
+  min-width: 0;
 }
 .d-title {
   display: flex;
@@ -974,6 +963,8 @@ kbd {
   gap: 7px;
   font-size: 17px;
   font-weight: 650;
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
 }
 .d-country {
   font-size: 12px;
@@ -984,6 +975,7 @@ kbd {
   font-size: 11px;
   color: var(--text-3);
   font-family: var(--mono);
+  overflow-wrap: anywhere;
 }
 .d-close {
   width: 24px;
@@ -1010,12 +1002,13 @@ kbd {
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--r-card);
+  flex-wrap: wrap;
 }
 .d-hero-time {
   font-size: 34px;
   font-weight: 680;
   line-height: 1;
-  letter-spacing: -1px;
+  letter-spacing: 0;
   font-family: var(--mono);
 }
 .d-hero-sec {
@@ -1066,13 +1059,15 @@ kbd {
 .d-rows dt {
   font-size: 12px;
   color: var(--text-3);
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .d-rows dd {
   margin: 0;
   font-size: 13px;
   font-weight: 600;
   text-align: right;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .d-rows dd.behind {
   color: var(--behind);
@@ -1520,9 +1515,6 @@ kbd {
   .search-trigger {
     min-width: 180px;
   }
-  .grid-section {
-    max-height: 34vh;
-  }
 }
 
 @media (max-width: 960px) {
@@ -1541,7 +1533,6 @@ kbd {
 @media (max-width: 720px) {
   .main {
     padding: 10px 12px 12px;
-    overflow-y: auto;
   }
   .header {
     padding: 10px 12px;
@@ -1588,30 +1579,23 @@ kbd {
     display: none;
   }
 
-  /* Cities scroll horizontally so the map keeps its share of the screen. */
+  /* Keep the complete city list in document flow so the map follows it. */
   .city-grid {
-    display: flex;
-    max-height: none;
-    overflow-x: auto;
-    overflow-y: hidden;
     padding-bottom: 6px;
-    scroll-snap-type: x mandatory;
   }
   .city-card {
-    flex: 0 0 132px;
-    scroll-snap-align: start;
+    min-width: 0;
   }
   .map-section {
     min-height: 380px;
-    flex: 1 0 380px;
   }
 
   /* Detail becomes a bottom sheet (§52), capped so the map stays visible. */
   .detail {
     position: fixed;
-    inset: auto 0 0 0;
-    width: auto;
-    max-height: 62vh;
+    inset: auto 14px 14px 14px;
+    width: calc(100vw - 28px);
+    max-height: min(62dvh, calc(100dvh - 28px));
     overflow-y: auto;
     border-radius: var(--r-panel) var(--r-panel) 0 0;
     animation: sheet-in 220ms var(--ease);
@@ -1636,6 +1620,17 @@ kbd {
   }
   .map-legend {
     display: none;
+  }
+  .grid-head {
+    gap: 8px;
+  }
+  .grid-legend {
+    flex-wrap: wrap;
+    font-size: 10px;
+    gap: 6px;
+  }
+  .header-right {
+    flex-basis: 100%;
   }
   .picker {
     top: 12px;

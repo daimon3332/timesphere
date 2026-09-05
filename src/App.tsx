@@ -68,12 +68,12 @@ export default function App() {
         <CityGrid now={now} onSelect={handleSelect} />
         <section className="map-section">
           <WorldMap now={now} onSelect={handleSelect} />
-          {selectedTimezone && (
-            <DetailPanel now={now} timezone={selectedTimezone} onClose={() => select(null)} clickPosition={clickPosition} />
-          )}
-          <CountryZonePicker now={now} onSelect={handleSelect} />
         </section>
       </main>
+      {selectedTimezone && (
+        <DetailPanel now={now} timezone={selectedTimezone} onClose={() => select(null)} clickPosition={clickPosition} />
+      )}
+      <CountryZonePicker now={now} onSelect={handleSelect} />
     </div>
   )
 }

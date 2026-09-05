@@ -224,6 +224,15 @@ describe('search: abbreviations and ambiguity', () => {
 })
 
 describe('nautical Etc/GMT zones', () => {
+  it('uses the requested instant for an unseeded zone label', () => {
+    expect(zoneLabel('Australia/Lord_Howe', WINTER).subtitleZh).toBe('UTC+11')
+    expect(zoneLabel('Australia/Lord_Howe', NOW).subtitleZh).toBe('UTC+10:30')
+  })
+
+  it('keeps the explicitly selected city within a shared timezone', () => {
+    expect(zoneLabel('Asia/Shanghai', NOW, 'beijing').titleZh).toBe('北京')
+    expect(zoneLabel('Asia/Shanghai', NOW, 'tokyo').titleZh).toBe('上海')
+  })
   it('never shows the POSIX-inverted id as a label', () => {
     // Etc/GMT+9 is UTC-9. Showing "GMT+9" would be a sign error to the user.
     expect(offsetMinutes('Etc/GMT+9', NOW)).toBe(-540)

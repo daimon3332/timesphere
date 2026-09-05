@@ -15,11 +15,12 @@ export const CountryZonePicker = memo(function CountryZonePicker({ now, onSelect
   const picker = useStore((s) => s.countryPicker)
   const close = useStore((s) => s.closeCountryPicker)
   const baseTimezone = useStore((s) => s.baseTimezone)
+  const baseCityId = useStore((s) => s.baseCityId)
 
   if (!picker) return null
   const info = COUNTRY_BY_CODE.get(picker.code)
   if (!info) return null
-  const baseName = zoneLabel(baseTimezone).titleZh
+  const baseName = zoneLabel(baseTimezone, now, baseCityId).titleZh
 
   return (
     <>

@@ -15,6 +15,9 @@ dist-ssr/
 
 *.tsbuildinfo
 
+# Local implementation plans
+plan.md
+
 logs/
 *.log
 npm-debug.log*

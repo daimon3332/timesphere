@@ -1,5 +1,5 @@
-import { memo, useEffect, useRef, useState } from 'react'
-import { CITY_BY_ZONE, isNauticalZone, zoneLabel } from '../lib/search'
+import { memo, useLayoutEffect, useRef, useState } from 'react'
+import { cityForTimezone, isNauticalZone, zoneLabel } from '../lib/search'
 import { TZ_GROUPS } from '../data/tz-groups'
 import { DAY_RELATION_ZH, describeZone, formatDifference } from '../lib/time'
 import { useStore } from '../store'
@@ -26,19 +26,17 @@ function commonNames(timezone: string): string {
 
 const EDGE = 14
 
-/** Map-section bounds, intersected with the viewport. */
-function hostBounds(el: HTMLElement | null) {
-  const host = el?.parentElement?.getBoundingClientRect()
+function clampToViewport(x: number, y: number, w: number, h: number) {
   return {
-    left: Math.max(host?.left ?? 0, 0),
-    top: Math.max(host?.top ?? 0, 0),
-    right: Math.min(host?.right ?? window.innerWidth, window.innerWidth),
-    bottom: Math.min(host?.bottom ?? window.innerHeight, window.innerHeight),
+    x: Math.min(Math.max(x, EDGE), Math.max(EDGE, window.innerWidth - w - EDGE)),
+    y: Math.min(Math.max(y, EDGE), Math.max(EDGE, window.innerHeight - h - EDGE)),
   }
 }
 
 export const DetailPanel = memo(function DetailPanel({ now, timezone, onClose, clickPosition }: Props) {
   const baseTimezone = useStore((s) => s.baseTimezone)
+  const baseCityId = useStore((s) => s.baseCityId)
+  const selectedCityId = useStore((s) => s.selectedCityId)
   const setBase = useStore((s) => s.setBase)
   const pinned = useStore((s) => s.pinned)
   const togglePin = useStore((s) => s.togglePin)
@@ -46,163 +44,87 @@ export const DetailPanel = memo(function DetailPanel({ now, timezone, onClose, c
   const panelRef = useRef<HTMLElement>(null)
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
   const [isDragging, setIsDragging] = useState(false)
-  const dragStartRef = useRef<{ x: number; y: number; initialX: number; initialY: number } | null>(null)
-
-  /**
-   * Keep the panel inside the map area. The panel is fixed-positioned but belongs
-   * to the map section, so clamping to the whole viewport would let it ride up
-   * over the city grid.
-   */
-  const clampToBounds = (x: number, y: number, w: number, h: number) => {
-    const b = hostBounds(panelRef.current)
-    const minX = b.left + EDGE
-    const minY = b.top + EDGE
-    return {
-      x: Math.min(Math.max(x, minX), Math.max(minX, b.right - w - EDGE)),
-      y: Math.min(Math.max(y, minY), Math.max(minY, b.bottom - h - EDGE)),
-    }
-  }
-
-  /**
-   * Cap the height to the map area before anything measures the panel, otherwise
-   * a panel taller than the map can never satisfy the clamp and loses all
-   * vertical freedom. Declared first so it applies before positioning reads the rect.
-   */
-  useEffect(() => {
-    const el = panelRef.current
-    if (!el) return
-    const apply = () => {
-      const b = hostBounds(el)
-      el.style.maxHeight = `${Math.max(200, b.bottom - b.top - EDGE * 2)}px`
-    }
-    apply()
-    window.addEventListener('resize', apply)
-    return () => window.removeEventListener('resize', apply)
-  }, [])
+  const dragStartRef = useRef<{ x: number; y: number; initialX: number; initialY: number; pointerId: number } | null>(null)
 
   const info = describeZone(timezone, now, baseTimezone)
   const baseInfo = describeZone(baseTimezone, now, baseTimezone)
-  const label = zoneLabel(timezone)
-  const baseLabel = zoneLabel(baseTimezone)
-  const city = CITY_BY_ZONE.get(timezone)
-  const isBase = timezone === baseTimezone
+  const label = zoneLabel(timezone, now, selectedCityId)
+  const baseLabel = zoneLabel(baseTimezone, now, baseCityId)
+  const city = cityForTimezone(timezone, selectedCityId)
+  const isBase = timezone === baseTimezone && (!city || city.id === baseCityId)
   const names = commonNames(timezone)
   const isPinned = city ? pinned.includes(city.id) : false
 
-  // 初始化位置：如果有点击位置，智能定位在旁边，否则使用默认位置
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!clickPosition || !panelRef.current) {
       setPosition(null)
       return
     }
 
     const rect = panelRef.current.getBoundingClientRect()
-    const hostRight = panelRef.current.parentElement?.getBoundingClientRect().right ?? window.innerWidth
-    const limit = Math.min(hostRight, window.innerWidth)
+    let x = clickPosition.x + 20
+    const y = clickPosition.y - rect.height / 2
 
-    let x = clickPosition.x + 20 // 点击位置右侧 20px
-    const y = clickPosition.y - rect.height / 2 // 垂直居中
+    if (x + rect.width > window.innerWidth - EDGE) x = clickPosition.x - rect.width - 20
 
-    // 右侧放不下时翻到左侧，再统一夹进地图区域
-    if (x + rect.width > limit - 14) x = clickPosition.x - rect.width - 20
+    setPosition(clampToViewport(x, y, rect.width, rect.height))
+  }, [clickPosition, timezone, selectedCityId])
 
-    setPosition(clampToBounds(x, y, rect.width, rect.height))
-  }, [clickPosition, timezone])
-
-  // 视口缩放后把面板拉回可见区域
-  useEffect(() => {
-    if (!position) return
+  useLayoutEffect(() => {
     const onResize = () => {
       const rect = panelRef.current?.getBoundingClientRect()
       if (!rect) return
-      setPosition((p) => (p ? clampToBounds(p.x, p.y, rect.width, rect.height) : p))
+      setPosition((p) => {
+        if (!p) return p
+        const next = clampToViewport(p.x, p.y, rect.width, rect.height)
+        return next.x === p.x && next.y === p.y ? p : next
+      })
     }
+    const observer = new ResizeObserver(onResize)
+    if (panelRef.current) observer.observe(panelRef.current)
     window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [position])
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', onResize)
+    }
+  }, [])
 
-  // 拖拽处理：鼠标与触摸共用一套起点记录
-  const beginDrag = (target: HTMLElement, clientX: number, clientY: number) => {
-    if (target.closest('button, a, input, select')) return false
-
+  const beginDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!e.isPrimary || e.button !== 0 || (e.target as Element).closest('button')) return
     const rect = panelRef.current!.getBoundingClientRect()
     dragStartRef.current = {
-      x: clientX,
-      y: clientY,
+      x: e.clientX,
+      y: e.clientY,
       initialX: position?.x ?? rect.left,
       initialY: position?.y ?? rect.top,
+      pointerId: e.pointerId,
     }
+    e.currentTarget.setPointerCapture(e.pointerId)
+    e.preventDefault()
     setIsDragging(true)
-    return true
   }
 
-  const handleMouseDown = (e: React.MouseEvent<HTMLElement>) => {
-    if (e.button !== 0) return
-    if (beginDrag(e.target as HTMLElement, e.clientX, e.clientY)) e.preventDefault()
+  const moveDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    const start = dragStartRef.current
+    const rect = panelRef.current?.getBoundingClientRect()
+    if (!start || start.pointerId !== e.pointerId || !rect) return
+    setPosition(clampToViewport(start.initialX + e.clientX - start.x,
+      start.initialY + e.clientY - start.y, rect.width, rect.height))
   }
 
-  const handleTouchStart = (e: React.TouchEvent<HTMLElement>) => {
-    const t = e.touches[0]
-    if (t) beginDrag(e.target as HTMLElement, t.clientX, t.clientY)
+  const endDrag = () => {
+    dragStartRef.current = null
+    setIsDragging(false)
   }
-
-  useEffect(() => {
-    if (!isDragging) return
-
-    const moveTo = (clientX: number, clientY: number) => {
-      const start = dragStartRef.current
-      const rect = panelRef.current?.getBoundingClientRect()
-      if (!start || !rect) return
-
-      setPosition(
-        clampToBounds(
-          start.initialX + (clientX - start.x),
-          start.initialY + (clientY - start.y),
-          rect.width,
-          rect.height,
-        ),
-      )
-    }
-
-    const onMouseMove = (e: MouseEvent) => moveTo(e.clientX, e.clientY)
-    const onTouchMove = (e: TouchEvent) => {
-      const t = e.touches[0]
-      if (!t) return
-      e.preventDefault() // 拖拽时不要让页面跟着滚
-      moveTo(t.clientX, t.clientY)
-    }
-    const onEnd = () => {
-      setIsDragging(false)
-      dragStartRef.current = null
-    }
-
-    document.addEventListener('mousemove', onMouseMove)
-    document.addEventListener('mouseup', onEnd)
-    document.addEventListener('touchmove', onTouchMove, { passive: false })
-    document.addEventListener('touchend', onEnd)
-    document.addEventListener('touchcancel', onEnd)
-
-    return () => {
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup', onEnd)
-      document.removeEventListener('touchmove', onTouchMove)
-      document.removeEventListener('touchend', onEnd)
-      document.removeEventListener('touchcancel', onEnd)
-    }
-  }, [isDragging])
 
   const style = position
     ? {
-        position: 'fixed' as const,
         left: `${position.x}px`,
         top: `${position.y}px`,
         right: 'auto',
-        // Hide the top-right flash before the anchored position is measured.
-        visibility: 'visible' as const,
+        bottom: 'auto',
       }
-    : clickPosition
-      ? { visibility: 'hidden' as const }
-      : undefined
+    : undefined
 
   return (
     <aside
@@ -211,10 +133,9 @@ export const DetailPanel = memo(function DetailPanel({ now, timezone, onClose, c
       style={style}
       role="region"
       aria-label={`${label.titleZh} 时区详情`}
-      onMouseDown={handleMouseDown}
-      onTouchStart={handleTouchStart}
     >
-      <div className="d-head">
+      <div className="d-head" onPointerDown={beginDrag} onPointerMove={moveDrag}
+        onPointerUp={endDrag} onPointerCancel={endDrag} onLostPointerCapture={endDrag}>
         <div>
           <div className="d-title">
             {label.titleZh}

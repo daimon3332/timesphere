@@ -24,7 +24,7 @@ import {
   meridianGrid,
   offsetColor,
 } from '../lib/map-style'
-import { CITY_BY_ZONE, isNauticalZone, nauticalZoneAt, zoneLabel } from '../lib/search'
+import { CITY_BY_ID, CITY_BY_ZONE, isNauticalZone, nauticalZoneAt, zoneLabel } from '../lib/search'
 import { describeZone, formatDifference, offsetMinutes } from '../lib/time'
 import { useStore } from '../store'
 import { CityLabels } from './CityLabels'
@@ -54,6 +54,8 @@ export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
   const [zoom, setZoom] = useState(1.1)
 
   const baseTimezone = useStore((s) => s.baseTimezone)
+  const baseCityId = useStore((s) => s.baseCityId)
+  const selectedCityId = useStore((s) => s.selectedCityId)
   const selectedTimezone = useStore((s) => s.selectedTimezone)
   const layers = useStore((s) => s.layers)
   const toggleLayer = useStore((s) => s.toggleLayer)
@@ -61,8 +63,8 @@ export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
 
   // Keep the latest instant/base available to map event handlers without
   // re-binding them every second.
-  const liveRef = useRef({ now, baseTimezone })
-  liveRef.current = { now, baseTimezone }
+  const liveRef = useRef({ now, baseTimezone, baseCityId })
+  liveRef.current = { now, baseTimezone, baseCityId }
 
   // Explicit numeric feature ids so setFeatureState never depends on
   // MapLibre's id-generation order.
@@ -333,25 +335,16 @@ export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
     }
   }, [cityGeo])
 
-  // -------------------------------------------------- offsets follow the hour
-  // DST transitions land on hour boundaries, so recolouring hourly is enough
-  // and avoids re-serialising 3 MB of GeoJSON every second.
-  const hourKey = useMemo(
-    () => `${now.getUTCFullYear()}-${now.getUTCMonth()}-${now.getUTCDate()}-${now.getUTCHours()}`,
-    [now],
-  )
+  // Some DST transitions occur between UTC hours (for example Adelaide).
+  const minuteKey = Math.floor(now.getTime() / 60000)
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
     const src = map.getSource(SRC_TZ) as GeoJSONSource | undefined
     const data = tzDataRef.current
     if (!src || !data) return
-    // Instant comes from the ref, so this effect depends only on the hour.
-    // Re-serialising 3 MB of GeoJSON every second would be wasteful, and zone
-    // offsets can only change on an hour boundary.
-    stampOffsets(data, liveRef.current.now)
-    src.setData(data)
-  }, [hourKey, ready])
+    if (stampOffsets(data, liveRef.current.now)) src.setData(data)
+  }, [minuteKey, ready])
 
   // ------------------------------------------------------- interaction wiring
   useEffect(() => {
@@ -386,7 +379,7 @@ export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
         map.getCanvas().style.cursor = 'pointer'
         const tz = city.properties!.timezone as string
         const info = describeZone(tz, n, base)
-        const baseName = CITY_BY_ZONE.get(base)?.nameZh ?? base
+        const baseName = zoneLabel(base, n, liveRef.current.baseCityId).titleZh
         setTooltip({
           x: e.point.x,
           y: e.point.y,
@@ -412,7 +405,7 @@ export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
           hoveredCountry = country.id
           map.setFeatureState({ source: SRC_COUNTRY, id: country.id }, { hover: true })
         }
-        const info = countryTooltip(country, n, base)
+        const info = countryTooltip(country, n, base, liveRef.current.baseCityId)
         map.getCanvas().style.cursor = info ? 'pointer' : ''
         if (info) {
           setTooltip({ ...info, x: e.point.x, y: e.point.y })
@@ -427,15 +420,15 @@ export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
       if (zone) {
         const tz = zone.properties!.tzid as string
         const info = describeZone(tz, n, base)
-        const baseName = CITY_BY_ZONE.get(base)?.nameZh ?? base
+        const baseName = zoneLabel(base, n, liveRef.current.baseCityId).titleZh
         map.getCanvas().style.cursor = 'pointer'
         setTooltip({
           x: e.point.x,
           y: e.point.y,
-          title: zoneLabel(tz).titleZh,
+          title: zoneLabel(tz, n).titleZh,
           time: info.localTime,
           meta: isNauticalZone(tz)
-            ? zoneLabel(tz).subtitleZh
+            ? zoneLabel(tz, n).subtitleZh
             : `${info.abbreviation} · ${info.utcOffset}`,
           diff:
             tz === base
@@ -448,8 +441,8 @@ export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
         // Open water: nautical band, derived from longitude.
         const tz = nauticalZoneAt(e.lngLat.lng)
         const info = describeZone(tz, n, base)
-        const label = zoneLabel(tz)
-        const baseName = CITY_BY_ZONE.get(base)?.nameZh ?? base
+        const label = zoneLabel(tz, n)
+        const baseName = zoneLabel(base, n, liveRef.current.baseCityId).titleZh
         map.getCanvas().style.cursor = 'pointer'
         setTooltip({
           x: e.point.x,
@@ -520,17 +513,13 @@ export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
     const map = mapRef.current
     if (!map || !ready) return
     map.removeFeatureState({ source: SRC_CITY })
-    // One representative city per zone carries the marker, otherwise every
-    // city sharing Asia/Shanghai would light up as the base.
-    const baseId = CITY_BY_ZONE.get(baseTimezone)?.id
-    const selId = selectedTimezone ? CITY_BY_ZONE.get(selectedTimezone)?.id : undefined
     CITIES.forEach((c, i) => {
       map.setFeatureState(
         { source: SRC_CITY, id: i },
-        { base: c.id === baseId, selected: c.id === selId },
+        { base: c.id === baseCityId, selected: c.id === selectedCityId },
       )
     })
-  }, [ready, baseTimezone, selectedTimezone])
+  }, [ready, baseCityId, selectedCityId])
 
   // Highlight the selected timezone polygon.
   useEffect(() => {
@@ -565,31 +554,31 @@ export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready || !selectedTimezone) return
-    const city = CITY_BY_ZONE.get(selectedTimezone)
+    const city = selectedCityId ? CITY_BY_ID.get(selectedCityId) : undefined
     if (!city) return
     map.easeTo({
       center: [city.longitude, city.latitude],
       zoom: Math.max(map.getZoom(), 2.6),
       duration: 700,
     })
-  }, [ready, selectedTimezone])
+  }, [ready, selectedTimezone, selectedCityId])
 
   const home = useCallback(() => {
     mapRef.current?.easeTo({ center: [20, 26], zoom: 1.1, duration: 600 })
   }, [])
 
   const gotoBase = useCallback(() => {
-    const city = CITY_BY_ZONE.get(baseTimezone)
+    const city = baseCityId ? CITY_BY_ID.get(baseCityId) : undefined
     if (!city) return
     mapRef.current?.easeTo({
       center: [city.longitude, city.latitude],
       zoom: 3,
       duration: 700,
     })
-  }, [baseTimezone])
+  }, [baseCityId])
 
-  const baseCity = CITY_BY_ZONE.get(baseTimezone)
-  const selectedCity = selectedTimezone ? CITY_BY_ZONE.get(selectedTimezone) : undefined
+  const baseCity = baseCityId ? CITY_BY_ID.get(baseCityId) : undefined
+  const selectedCity = selectedCityId ? CITY_BY_ID.get(selectedCityId) : undefined
 
   return (
     <div className="map-wrap">
@@ -597,8 +586,8 @@ export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
       <CityLabels
         map={mapInstance}
         ready={ready}
-        baseTimezone={baseTimezone}
-        selectedTimezone={selectedTimezone}
+        baseCityId={baseCityId}
+        selectedCityId={selectedCityId}
         visible={layers.cities}
         onSelect={onSelect}
       />
@@ -665,17 +654,24 @@ export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
 })
 
 function stampOffsets(geo: GeoJSON.FeatureCollection, instant: Date) {
+  let changed = false
   for (const f of geo.features) {
     const tzid = (f.properties as { tzid?: string } | null)?.tzid
     if (!tzid) continue
     try {
       const off = offsetMinutes(tzid, instant)
+      const color = offsetColor(off)
+      if (f.properties!.offset === off && f.properties!.color === color) continue
       f.properties!.offset = off
-      f.properties!.color = offsetColor(off)
+      f.properties!.color = color
+      changed = true
     } catch {
+      if (f.properties!.color === '#e9eef5') continue
       f.properties!.color = '#e9eef5'
+      changed = true
     }
   }
+  return changed
 }
 
 /**
@@ -715,6 +711,7 @@ function countryTooltip(
   f: MapGeoJSONFeature,
   now: Date,
   base: string,
+  baseCityId: string | null,
 ): Omit<TooltipData, 'x' | 'y'> | null {
   const code = alpha2Of(f)
   const info = code ? COUNTRY_BY_CODE.get(code) : undefined
@@ -730,7 +727,7 @@ function countryTooltip(
   }
   const z = info.zones[0]!
   const d = describeZone(z.timezone, now, base)
-  const baseName = CITY_BY_ZONE.get(base)?.nameZh ?? base
+  const baseName = zoneLabel(base, now, baseCityId).titleZh
   return {
     title: info.nameZh,
     time: d.localTime,

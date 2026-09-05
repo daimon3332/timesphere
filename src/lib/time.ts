@@ -14,6 +14,13 @@ interface ZoneParts {
 
 const partsCache = new Map<string, Intl.DateTimeFormat>()
 
+function utcTimestamp(year: number, month: number, day: number, hour = 0, minute = 0, second = 0): number {
+  const date = new Date(0)
+  date.setUTCFullYear(year, month - 1, day)
+  date.setUTCHours(hour, minute, second, 0)
+  return date.getTime()
+}
+
 function partsFormatter(timeZone: string): Intl.DateTimeFormat {
   let f = partsCache.get(timeZone)
   if (!f) {
@@ -68,7 +75,7 @@ export function zonedParts(timeZone: string, instant: Date): ZoneParts {
  */
 export function offsetMinutes(timeZone: string, instant: Date): number {
   const p = zonedParts(timeZone, instant)
-  const asUTC = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second)
+  const asUTC = utcTimestamp(p.year, p.month, p.day, p.hour, p.minute, p.second)
   // Drop sub-second noise so the result lands on a whole minute.
   const base = Math.floor(instant.getTime() / 1000) * 1000
   return Math.round((asUTC - base) / 60000)
@@ -257,7 +264,7 @@ function yearProfile(timeZone: string, year: number) {
   let max = Number.NEGATIVE_INFINITY
   const samples: number[] = []
   for (let m = 0; m < 12; m++) {
-    const o = offsetMinutes(timeZone, new Date(Date.UTC(year, m, 15, 12)))
+    const o = offsetMinutes(timeZone, new Date(utcTimestamp(year, m + 1, 15, 12)))
     samples.push(o)
     if (o < min) min = o
     if (o > max) max = o
@@ -323,8 +330,8 @@ export function zoneNaming(timeZone: string, instant: Date): ZoneNaming {
 
 /** Compare two zones' calendar days at the same instant. */
 function dayRelation(basePartsDay: number[], targetPartsDay: number[]): DayRelation {
-  const a = Date.UTC(basePartsDay[0]!, basePartsDay[1]! - 1, basePartsDay[2]!)
-  const b = Date.UTC(targetPartsDay[0]!, targetPartsDay[1]! - 1, targetPartsDay[2]!)
+  const a = utcTimestamp(basePartsDay[0]!, basePartsDay[1]!, basePartsDay[2]!)
+  const b = utcTimestamp(targetPartsDay[0]!, targetPartsDay[1]!, targetPartsDay[2]!)
   if (b === a) return 'today'
   return b > a ? 'tomorrow' : 'yesterday'
 }
@@ -351,7 +358,7 @@ export function describeZone(
     timezone: timeZone,
     localTime: `${pad(p.hour)}:${pad(p.minute)}`,
     seconds: pad(p.second),
-    date: `${p.year}-${pad(p.month)}-${pad(p.day)}`,
+    date: `${String(p.year).padStart(4, '0')}-${pad(p.month)}-${pad(p.day)}`,
     shortDate: `${pad(p.month)}-${pad(p.day)}`,
     weekday: WEEKDAY_ZH[p.weekday]!,
     utcOffset: formatOffset(off),
@@ -432,7 +439,13 @@ export function resolveZonedWallClock(
   h: number,
   mi: number,
 ): ResolvedWallClock {
-  const target = Date.UTC(y, mo - 1, d, h, mi, 0)
+  const target = utcTimestamp(y, mo, d, h, mi)
+  const calendar = new Date(target)
+  if (![y, mo, d, h, mi].every(Number.isInteger) || y < 1 || y > 9999 ||
+    calendar.getUTCFullYear() !== y || calendar.getUTCMonth() + 1 !== mo ||
+    calendar.getUTCDate() !== d || calendar.getUTCHours() !== h || calendar.getUTCMinutes() !== mi) {
+    throw new RangeError('Invalid wall-clock fields')
+  }
 
   const renders = (ts: number) => {
     const p = zonedParts(timeZone, new Date(ts))

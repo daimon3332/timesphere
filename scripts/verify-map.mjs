@@ -8,10 +8,11 @@
  */
 import { spawn } from 'node:child_process'
 import { spawnSync } from 'node:child_process'
-import { existsSync, globSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, globSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
-import { homedir, tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { homedir } from 'node:os'
+import { basename, dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const URL_UNDER_TEST = process.argv[2] ?? 'http://localhost:4174/'
 
@@ -35,7 +36,11 @@ function findChrome() {
 const CHROME = findChrome()
 
 const PORT = Number(process.env.CDP_PORT ?? 9412)
-const profile = mkdtempSync(join(tmpdir(), 'tsphere-'))
+// Keep generated profiles inside the repo but outside Vite's watched files.
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const temp = join(root, 'node_modules', '.cache', 'timesphere-browser')
+mkdirSync(temp, { recursive: true })
+const profile = realpathSync(mkdtempSync(join(temp, 'tsphere-')))
 
 // On Windows the launcher process exits immediately while the real browser
 // keeps running, so the ws endpoint is discovered over HTTP rather than stderr.
@@ -46,6 +51,8 @@ const child = spawn(
     `--remote-debugging-port=${PORT}`,
     '--no-first-run',
     '--no-default-browser-check',
+    '--disable-extensions',
+    '--disable-background-networking',
     // Software GL: headless has no real GPU, but MapLibre requires WebGL2.
     '--use-gl=angle',
     '--use-angle=swiftshader',
@@ -55,7 +62,7 @@ const child = spawn(
     `--user-data-dir=${profile}`,
     'about:blank',
   ],
-  { stdio: 'ignore', detached: true },
+  { stdio: 'ignore', detached: true, windowsHide: true },
 )
 child.unref()
 
@@ -87,7 +94,7 @@ function cleanup() {
             ` Where-Object { $_.CommandLine -like ('*' + ${literal} + '*') } |` +
             ` ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
         ],
-        { stdio: 'ignore' },
+        { stdio: 'ignore', windowsHide: true },
       )
     } else {
       process.kill(-child.pid, 'SIGKILL')
@@ -95,6 +102,9 @@ function cleanup() {
   } catch {}
   for (let i = 0; i < 10; i++) {
     try {
+      if (dirname(profile) !== realpathSync(temp) || !basename(profile).startsWith('tsphere-')) {
+        throw new Error('refusing to remove an unexpected browser profile')
+      }
       rmSync(profile, { recursive: true, force: true })
       break
     } catch {
@@ -150,6 +160,7 @@ ws.onmessage = (ev) => {
     const p = pending.get(msg.id)
     if (!p) return
     pending.delete(msg.id)
+    clearTimeout(p.timer)
     msg.error ? p.reject(new Error(msg.error.message)) : p.resolve(msg.result)
     return
   }
@@ -168,7 +179,11 @@ ws.onmessage = (ev) => {
 const send = (method, params, sessionId) =>
   new Promise((resolve, reject) => {
     const id = ++nextId
-    pending.set(id, { resolve, reject })
+    const timer = setTimeout(() => {
+      pending.delete(id)
+      reject(new Error('CDP timeout: ' + method))
+    }, 30000)
+    pending.set(id, { resolve, reject, timer })
     ws.send(JSON.stringify({ id, method, params, sessionId }))
   })
 
@@ -180,6 +195,7 @@ const call = (method, params) => send(method, params, sessionId)
 await call('Page.enable')
 await call('Runtime.enable')
 await call('Network.enable')
+await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false })
 
 const loaded = new Promise((resolve) => {
   const onLoad = (ev) => {
@@ -188,8 +204,23 @@ const loaded = new Promise((resolve) => {
   }
   ws.addEventListener('message', onLoad)
 })
-await call('Page.navigate', { url: URL_UNDER_TEST })
+const navigation = await call('Page.navigate', { url: URL_UNDER_TEST })
+if (navigation.errorText) throw new Error('Navigation failed: ' + navigation.errorText)
 await loaded
+
+const evaluate = async (expression) => {
+  const response = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })
+  if (response.exceptionDetails) throw new Error(response.exceptionDetails.exception?.description ?? response.exceptionDetails.text)
+  return response.result.value
+}
+const pause = (ms = 250) => new Promise((r) => setTimeout(r, ms))
+const checks = []
+const check = (name, passed, detail) => {
+  checks.push({ name, passed: Boolean(passed), detail })
+}
+
+// The map is intentionally below the complete city list.
+await evaluate(`document.querySelector('.map-wrap')?.scrollIntoView({ block: 'center' })`)
 
 /** Poll until MapLibre reports the sources loaded, or time out. */
 const probe = async () => {
@@ -265,6 +296,7 @@ let snap
 for (let i = 0; i < 30; i++) {
   await new Promise((r) => setTimeout(r, 1000))
   snap = await probe()
+  if (consoleErrors.length) break
   if (snap.state === 'error') break
   if (snap.state === 'ok' && snap.tzFeatures > 0 && snap.countryFeatures > 0) break
   // Canvas-only path: we're in production and __map is not exposed.
@@ -272,7 +304,11 @@ for (let i = 0; i < 30; i++) {
   // Instead, wait for the skeleton to disappear, then capture a screenshot
   // and measure pixel diversity to confirm the map actually rendered.
   if (snap.state === 'canvas-only' && !snap.skeleton) {
-    const resp = await call('Page.captureScreenshot', { format: 'png' })
+    const clip = await evaluate(`(() => {
+      const r = document.querySelector('.map-wrap').getBoundingClientRect()
+      return { x: r.left + scrollX, y: r.top + scrollY, width: r.width, height: r.height, scale: 1 }
+    })()`)
+    const resp = await call('Page.captureScreenshot', { format: 'png', clip, captureBeyondViewport: true })
     if (resp?.data) {
       const png = Buffer.from(resp.data, 'base64')
       // A blank canvas would compress to ~1-2KB; a rendered map is >30KB.
@@ -282,6 +318,10 @@ for (let i = 0; i < 30; i++) {
       }
     }
   }
+}
+
+if (consoleErrors.length) {
+  throw new Error('Browser errors: ' + consoleErrors.join('\n'))
 }
 
 // ------------------------------------------------- detail panel interaction
@@ -296,6 +336,7 @@ if (snap?.state === 'ok' || snap?.canvasProof) {
   const target = await call('Runtime.evaluate', {
     expression: `(() => {
       const c = document.querySelector('.map-holder canvas')
+      c.scrollIntoView({ block: 'center' })
       const r = c.getBoundingClientRect()
       return JSON.stringify({ x: Math.round(r.left + r.width * 0.46), y: Math.round(r.top + r.height * 0.55) })
     })()`,
@@ -313,7 +354,7 @@ if (snap?.state === 'ok' || snap?.canvasProof) {
         const el = document.querySelector('.detail')
         if (!el) return JSON.stringify({ open: false })
         const r = el.getBoundingClientRect()
-        const h = el.parentElement.getBoundingClientRect()
+        const h = document.querySelector('.map-section').getBoundingClientRect()
         return JSON.stringify({ open: true, x: Math.round(r.left), y: Math.round(r.top),
           pw: Math.round(r.width), ph: Math.round(r.height),
           vh: window.innerHeight, vw: window.innerWidth,
@@ -336,43 +377,43 @@ if (snap?.state === 'ok' || snap?.canvasProof) {
     // Drag by the header, which is the declared drag handle.
     const hx = before.x + Math.round(before.pw / 2)
     const hy = before.y + 16
-    // Drag left and UP: down may legitimately be clamped by the bottom edge.
+    // Drag above the map, into the city list's viewport area.
     await mouse('mousePressed', hx, hy)
-    await mouse('mouseMoved', hx - 180, hy - 60)
-    await mouse('mouseMoved', hx - 200, hy - 90)
-    await mouse('mouseReleased', hx - 200, hy - 90)
+    await pause(50)
+    await mouse('mouseMoved', 20, 20, { buttons: 1 })
+    await mouse('mouseReleased', 20, 20)
     await new Promise((r) => setTimeout(r, 250))
     const after = await readPanel()
 
     // The panel usually opens flush against the top edge, so an upward drag is
     // legitimately clamped to zero. Drag DOWN to prove vertical freedom exists.
-    const slack = Math.round(after.host.bottom - after.y - after.ph)
+    const slack = Math.round(after.vh - after.y - after.ph)
     const dy = Math.min(60, Math.max(0, slack - 20))
     let movedDownY = null
     if (dy > 0) {
       const dx0 = after.x + Math.round(after.pw / 2)
       const dy0 = after.y + 16
       await mouse('mousePressed', dx0, dy0)
-      await mouse('mouseMoved', dx0, dy0 + dy)
+      await pause(50)
+      await mouse('mouseMoved', dx0, dy0 + dy, { buttons: 1 })
       await mouse('mouseReleased', dx0, dy0 + dy)
       await new Promise((r) => setTimeout(r, 250))
       const down = await readPanel()
       movedDownY = down.open ? down.y - after.y : null
     }
-    // The panel is fixed-positioned but belongs to the map section, so it must
-    // never overlap the city grid above it.
     const within = (p) =>
       p.open &&
-      p.y >= p.host.top - 1 &&
-      p.y + p.ph <= p.host.bottom + 1 &&
-      p.x >= p.host.left - 1 &&
-      p.x + p.pw <= p.host.right + 1
+      p.y >= 13 &&
+      p.y + p.ph <= p.vh - 13 &&
+      p.x >= 13 &&
+      p.x + p.pw <= p.vw - 13
     panel = {
       state: 'checked',
       visibility: before.vis,
       anchoredNearClick: anchored,
-      insideMapOnOpen: within(before),
-      insideMapAfterDrag: within(after),
+      insideViewportOnOpen: within(before),
+      insideViewportAfterDrag: within(after),
+      movedOutsideMap: after.y < after.host.top - 1,
       host: before.host,
       click: pt,
       panelSize: { w: before.pw, h: before.ph },
@@ -389,6 +430,97 @@ if (snap?.state === 'ok' || snap?.canvasProof) {
   }
 }
 console.log('detailPanel   :', JSON.stringify(panel, null, 2))
+check('panel opens near map click and drags outside map',
+  panel.state === 'checked' && panel.visibility === 'visible' && panel.anchoredNearClick &&
+  panel.insideViewportOnOpen && panel.insideViewportAfterDrag && panel.movedOutsideMap && panel.movedDownY > 0,
+  panel)
+
+const inspectLayout = () => evaluate(`(() => {
+  const grid = document.querySelector('.city-grid')
+  const last = grid.lastElementChild.getBoundingClientRect()
+  const map = document.querySelector('.map-wrap').getBoundingClientRect()
+  const scroll = document.querySelector('.grid-scroll')
+  const section = document.querySelector('.grid-section')
+  return { count: grid.children.length, mapFollowsList: map.top >= last.bottom,
+    complete: scroll.scrollHeight <= scroll.clientHeight + 1 && grid.scrollWidth <= grid.clientWidth + 1,
+    uncapped: getComputedStyle(section).maxHeight === 'none',
+    pageFits: document.documentElement.scrollWidth <= innerWidth,
+    mapHeight: map.height }
+})()`)
+const panelVisible = () => evaluate(`(() => {
+  const r = document.querySelector('.detail')?.getBoundingClientRect()
+  return !!r && r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight + 1 && r.right <= innerWidth + 1
+})()`)
+const selectCity = async (name) => {
+  await evaluate(`document.querySelector('.d-close')?.click();
+    [...document.querySelectorAll('.city-card')].find(el => el.querySelector('.cc-name').textContent === ${JSON.stringify(name)})?.click()`)
+  await pause()
+}
+const desktopLayout = await inspectLayout()
+check('desktop list is fully expanded with map below', desktopLayout.complete && desktopLayout.uncapped && desktopLayout.mapFollowsList && desktopLayout.pageFits && desktopLayout.mapHeight >= 380, desktopLayout)
+await evaluate('window.scrollTo(0, 0)')
+await selectCity('北京')
+check('card selection opens a visible panel without scrolling to map', await panelVisible())
+const selected = await evaluate(`({ title: document.querySelector('.d-title')?.textContent,
+  card: document.querySelector('.city-card.is-selected .cc-name')?.textContent })`)
+check('same-zone city keeps its selected identity', selected.title?.startsWith('北京') && selected.card === '北京', selected)
+await evaluate(`document.querySelector('.detail .d-actions .btn:not(.primary)')?.click()`)
+const pins = await evaluate(`JSON.parse(localStorage.getItem('timesphere.v1') ?? '{}').pinned`)
+check('pin action targets selected city', pins?.includes('shanghai') && !pins?.includes('beijing'), pins)
+
+// Real form events, including the base-zone change that previously reset the instant.
+await evaluate(`document.querySelector('.d-close')?.click(); document.querySelectorAll('.tm-btn')[1].click()`)
+await pause()
+const fillInput = async (selector, value) => {
+  await evaluate(`(() => {
+    const el = document.querySelector(${JSON.stringify(selector)})
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, ${JSON.stringify(value)})
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+    el.dispatchEvent(new Event('change', { bubbles: true }))
+  })()`)
+  await pause()
+}
+await fillInput('#tz-custom-date', '2026-12-25')
+await fillInput('#tz-custom-time', '10:00')
+if (snap.state === 'ok') {
+  await fillInput('#tz-custom-date', '2026-10-04')
+  await fillInput('#tz-custom-time', '00:20')
+  const offsetBefore = await evaluate(`window.__map.getSource('tz').getData().then(data => data.features.find(f => f.properties.tzid === 'Australia/Adelaide').properties.offset)`)
+  await fillInput('#tz-custom-time', '00:40')
+  const offsetAfter = await evaluate(`window.__map.getSource('tz').getData().then(data => data.features.find(f => f.properties.tzid === 'Australia/Adelaide').properties.offset)`)
+  check('map updates offsets at a half-hour DST transition', offsetBefore === 570 && offsetAfter === 630, { offsetBefore, offsetAfter })
+  await fillInput('#tz-custom-date', '2026-12-25')
+  await fillInput('#tz-custom-time', '10:00')
+}
+await selectCity('东京')
+await evaluate(`document.querySelector('.detail .btn.primary').click()`)
+await pause()
+const custom = await evaluate(`({ date: document.querySelector('#tz-custom-date').value,
+  time: document.querySelector('#tz-custom-time').value, clock: document.querySelector('.clock-time').textContent })`)
+check('changing base preserves planned instant', custom.date === '2026-12-25' && custom.time === '11:00' && custom.clock.startsWith('11:00'), custom)
+await evaluate(`document.querySelectorAll('.tm-btn')[0].click()`)
+
+for (const [width, height] of [[390, 844], [320, 568], [1024, 420]]) {
+  await evaluate(`document.querySelector('.d-close')?.click()`)
+  await call('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false })
+  await pause()
+  const layout = await inspectLayout()
+  check('complete list at ' + width + 'x' + height, layout.complete && layout.uncapped && layout.mapFollowsList && layout.pageFits && layout.mapHeight >= 380, layout)
+  await selectCity('奥克兰')
+  check('panel fits ' + width + 'x' + height, await panelVisible())
+  if (process.argv[3]) {
+    const shot = await call('Page.captureScreenshot', { format: 'png' })
+    await writeFile(process.argv[3].replace(/\.png$/, '-' + width + '.png'), Buffer.from(shot.data, 'base64'))
+  }
+}
+await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false })
+await pause()
+
+// Ensure malformed persisted preferences cannot stop the application booting.
+await evaluate(`localStorage.setItem('timesphere.v1', JSON.stringify({ pinned: 'invalid', baseTimezone: 42, displayMode: 'unknown' }))`)
+await call('Page.reload', { ignoreCache: true })
+await pause(1800)
+check('malformed local preferences recover without blank page', await evaluate(`document.querySelectorAll('.city-card').length > 0`))
 
 const shotPath = process.argv[3]
 if (shotPath) {
@@ -403,11 +535,14 @@ console.log('URL           :', URL_UNDER_TEST)
 console.log('snapshot      :', JSON.stringify(snap, null, 2))
 console.log('consoleErrors :', consoleErrors.length ? consoleErrors.slice(0, 10) : 'none')
 console.log('failedReqs    :', failedRequests.length ? failedRequests.slice(0, 10) : 'none')
+console.log('checks        :', JSON.stringify(checks, null, 2))
 
 const rendered =
   (snap?.state === 'ok' && snap.tzFeatures > 0 && snap.countryFeatures > 0) ||
   (snap?.state === 'canvas-only' && !snap.skeleton && !!snap.canvasProof)
 console.log(rendered ? '\nRESULT: map rendered features OK' : '\nRESULT: MAP DID NOT RENDER')
+const passed = rendered && checks.every(c => c.passed) && !consoleErrors.length && !failedRequests.length
+console.log(passed ? 'RESULT: UI regression checks OK' : 'RESULT: UI REGRESSION CHECKS FAILED')
 
 try {
   await send('Browser.close')
@@ -417,4 +552,4 @@ try {
 } catch {}
 // The 'exit' handler runs cleanup(); it is idempotent, so a graceful close
 // here plus the handler covers both normal and abnormal termination.
-process.exit(rendered ? 0 : 1)
+process.exit(passed ? 0 : 1)

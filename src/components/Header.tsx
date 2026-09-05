@@ -21,6 +21,7 @@ const MODES: { key: DisplayMode; label: string }[] = [
 
 export const Header = memo(function Header({ now, baseInfo, onSelect }: Props) {
   const baseTimezone = useStore((s) => s.baseTimezone)
+  const baseCityId = useStore((s) => s.baseCityId)
   const displayMode = useStore((s) => s.displayMode)
   const setDisplayMode = useStore((s) => s.setDisplayMode)
   const setBase = useStore((s) => s.setBase)
@@ -28,7 +29,7 @@ export const Header = memo(function Header({ now, baseInfo, onSelect }: Props) {
   const setSearchOpen = useStore((s) => s.setSearchOpen)
   const [pickerOpen, setPickerOpen] = useState(false)
 
-  const label = zoneLabel(baseTimezone)
+  const label = zoneLabel(baseTimezone, now, baseCityId)
   // The base chip always shows the IANA id plus live offset: it is the one
   // place where the professional detail is unconditionally useful.
   const baseSecondary = `${baseTimezone} · ${baseInfo.utcOffset}${
@@ -67,7 +68,7 @@ export const Header = memo(function Header({ now, baseInfo, onSelect }: Props) {
       </div>
 
       <div className="header-right">
-        <button className="search-trigger" onClick={() => setSearchOpen(true)}>
+        <button className="search-trigger" onClick={() => setSearchOpen(true)} aria-label="搜索城市或时区">
           <svg viewBox="0 0 16 16" aria-hidden="true" className="search-icon">
             <circle cx="7" cy="7" r="4.4" fill="none" stroke="currentColor" strokeWidth="1.6" />
             <path d="M10.4 10.4L14 14" stroke="currentColor" strokeWidth="1.6" fill="none" />
@@ -112,8 +113,8 @@ export const Header = memo(function Header({ now, baseInfo, onSelect }: Props) {
             setPickerOpen(false)
             setSearchOpen(false)
           }}
-          onPick={(timezone) => {
-            const cityId = CITY_BY_ZONE.get(timezone)?.id ?? null
+          onPick={(timezone, selectedCityId) => {
+            const cityId = selectedCityId ?? CITY_BY_ZONE.get(timezone)?.id ?? null
             if (pickerOpen) setBase(timezone, cityId)
             else onSelect(timezone, cityId)
             setPickerOpen(false)

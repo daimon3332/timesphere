@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import { CITIES } from './data/cities'
+import { CITY_BY_ID, cityForTimezone } from './lib/search'
+import { isValidTimeZone } from './lib/time'
 import type { ClockMode, DisplayMode, Region } from './types'
 
 export type MapLayer = 'timezones' | 'countries' | 'cities'
@@ -18,6 +19,7 @@ const STORAGE_KEY = 'timesphere.v1'
 
 interface Persisted {
   baseTimezone: string
+  baseCityId: string | null
   displayMode: DisplayMode
   pinned: string[]
 }
@@ -26,16 +28,21 @@ function loadPersisted(): Partial<Persisted> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return {}
-    const parsed = JSON.parse(raw) as Partial<Persisted>
-    // Guard against a stale zone id that the platform no longer knows.
-    if (parsed.baseTimezone) {
-      try {
-        new Intl.DateTimeFormat('en-US', { timeZone: parsed.baseTimezone })
-      } catch {
-        delete parsed.baseTimezone
-      }
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const fields = parsed as Record<string, unknown>
+    const result: Partial<Persisted> = {}
+    if (typeof fields.baseTimezone === 'string' && isValidTimeZone(fields.baseTimezone)) {
+      result.baseTimezone = fields.baseTimezone
     }
-    return parsed
+    if (typeof fields.baseCityId === 'string') result.baseCityId = fields.baseCityId
+    if (fields.displayMode === 'iana' || fields.displayMode === 'utc' || fields.displayMode === 'abbreviation') {
+      result.displayMode = fields.displayMode
+    }
+    if (Array.isArray(fields.pinned)) {
+      result.pinned = [...new Set(fields.pinned.filter((id): id is string => typeof id === 'string' && CITY_BY_ID.has(id)))]
+    }
+    return result
   } catch {
     return {}
   }
@@ -44,6 +51,7 @@ function loadPersisted(): Partial<Persisted> {
 interface State {
   baseTimezone: string
   /** city id if the base is one of our cities */
+  baseCityId: string | null
   selectedTimezone: string | null
   selectedCityId: string | null
   clickPosition: { x: number; y: number } | null
@@ -76,6 +84,7 @@ function persist(s: State) {
   try {
     const data: Persisted = {
       baseTimezone: s.baseTimezone,
+      baseCityId: s.baseCityId,
       displayMode: s.displayMode,
       pinned: s.pinned,
     }
@@ -85,13 +94,9 @@ function persist(s: State) {
   }
 }
 
-const validPinned = (ids: string[]) => {
-  const known = new Set(CITIES.map((c) => c.id))
-  return ids.filter((id) => known.has(id))
-}
-
 export const useStore = create<State>((set, get) => ({
   baseTimezone: persisted.baseTimezone ?? 'Asia/Shanghai',
+  baseCityId: cityForTimezone(persisted.baseTimezone ?? 'Asia/Shanghai', persisted.baseCityId)?.id ?? null,
   selectedTimezone: null,
   selectedCityId: null,
   clickPosition: null,
@@ -99,16 +104,23 @@ export const useStore = create<State>((set, get) => ({
   mode: 'now',
   customDateTime: null,
   regionFilter: 'all',
-  pinned: validPinned(persisted.pinned ?? DEFAULT_PINNED),
+  pinned: persisted.pinned ?? DEFAULT_PINNED,
   layers: { timezones: true, countries: true, cities: true },
   countryPicker: null,
   searchOpen: false,
 
   setBase: (timezone, cityId = null) => {
-    set({ baseTimezone: timezone, selectedTimezone: null, selectedCityId: cityId })
+    if (!isValidTimeZone(timezone)) return
+    set({ baseTimezone: timezone, baseCityId: cityForTimezone(timezone, cityId)?.id ?? null,
+      selectedTimezone: null, selectedCityId: null, clickPosition: null })
     persist(get())
   },
-  select: (timezone, cityId = null, clickPos = null) => set({ selectedTimezone: timezone, selectedCityId: cityId, clickPosition: clickPos }),
+  select: (timezone, cityId = null, clickPos = null) => {
+    if (timezone && !isValidTimeZone(timezone)) return
+    set({ selectedTimezone: timezone,
+      selectedCityId: timezone ? cityForTimezone(timezone, cityId)?.id ?? null : null,
+      clickPosition: timezone ? clickPos : null })
+  },
   setDisplayMode: (m) => {
     set({ displayMode: m })
     persist(get())
@@ -122,6 +134,7 @@ export const useStore = create<State>((set, get) => ({
   setCustomDateTime: (d) => set({ customDateTime: d }),
   setRegionFilter: (regionFilter) => set({ regionFilter }),
   togglePin: (cityId) => {
+    if (!CITY_BY_ID.has(cityId)) return
     set((s) => ({
       pinned: s.pinned.includes(cityId)
         ? s.pinned.filter((x) => x !== cityId)

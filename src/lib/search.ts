@@ -211,15 +211,20 @@ for (const c of [...CITIES].sort((a, b) => a.priority - b.priority)) {
  * raw ids must never be shown. They are the nautical zones covering open
  * water, so they are labelled by their real offset instead.
  */
-export function zoneLabel(timezone: string): { titleZh: string; subtitleZh: string } {
-  const city = CITY_BY_ZONE.get(timezone)
+export function cityForTimezone(timezone: string, cityId?: string | null): City | undefined {
+  const city = cityId ? CITY_BY_ID.get(cityId) : undefined
+  return city?.timezone === timezone ? city : CITY_BY_ZONE.get(timezone)
+}
+
+export function zoneLabel(timezone: string, instant = new Date(), cityId?: string | null): { titleZh: string; subtitleZh: string } {
+  const city = cityForTimezone(timezone, cityId)
   if (city) return { titleZh: city.nameZh, subtitleZh: city.countryZh }
   if (timezone === 'UTC' || timezone === 'Etc/UTC' || timezone === 'Etc/GMT') {
     return { titleZh: '协调世界时', subtitleZh: 'UTC' }
   }
   if (timezone.startsWith('Etc/GMT')) {
     // Sign is inverted in the id; derive the label from the true offset.
-    const offset = offsetMinutes(timezone, new Date())
+    const offset = offsetMinutes(timezone, instant)
     return { titleZh: `${formatOffset(offset)} 海域`, subtitleZh: '公海 / 航海时区' }
   }
   // Unseeded zone: the id's region prefix ("Asia") is not a country, so show
@@ -227,7 +232,7 @@ export function zoneLabel(timezone: string): { titleZh: string; subtitleZh: stri
   // id is omitted here because callers render it on its own line.
   return {
     titleZh: timezone.split('/').pop()!.replace(/_/g, ' '),
-    subtitleZh: formatOffset(offsetMinutes(timezone, new Date())),
+    subtitleZh: formatOffset(offsetMinutes(timezone, instant)),
   }
 }
 

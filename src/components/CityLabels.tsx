@@ -1,7 +1,6 @@
 import type { Map as MlMap } from 'maplibre-gl'
 import { memo, useEffect, useState } from 'react'
 import { CITIES } from '../data/cities'
-import { CITY_BY_ZONE } from '../lib/search'
 import type { City } from '../types'
 
 interface Placed {
@@ -13,10 +12,10 @@ interface Placed {
 interface Props {
   map: MlMap | null
   ready: boolean
-  baseTimezone: string
-  selectedTimezone: string | null
+  baseCityId: string | null
+  selectedCityId: string | null
   visible: boolean
-  onSelect: (timezone: string, cityId: string) => void
+  onSelect: (timezone: string, cityId: string, clickPosition?: { x: number; y: number }) => void
 }
 
 /** Tier reveal thresholds (§22). */
@@ -38,8 +37,8 @@ const LABEL_H = 17
 export const CityLabels = memo(function CityLabels({
   map,
   ready,
-  baseTimezone,
-  selectedTimezone,
+  baseCityId,
+  selectedCityId,
   visible,
   onSelect,
 }: Props) {
@@ -58,16 +57,11 @@ export const CityLabels = memo(function CityLabels({
         const w = canvas.clientWidth
         const h = canvas.clientHeight
 
-        // A zone holds several cities (Asia/Shanghai has 上海/北京/深圳/成都),
-        // so exactly one representative carries the base/selected marker.
-        const baseId = CITY_BY_ZONE.get(baseTimezone)?.id
-        const selId = selectedTimezone ? CITY_BY_ZONE.get(selectedTimezone)?.id : undefined
-
         const candidates = CITIES.filter((c) => {
-          if (c.priority > tier) return c.id === baseId || c.id === selId
+          if (c.priority > tier) return c.id === baseCityId || c.id === selectedCityId
           return true
         }).sort((a, b) => {
-          const key = (c: City) => (c.id === baseId ? -2 : c.id === selId ? -1 : c.priority)
+          const key = (c: City) => (c.id === baseCityId ? -2 : c.id === selectedCityId ? -1 : c.priority)
           return key(a) - key(b)
         })
 
@@ -111,17 +105,15 @@ export const CityLabels = memo(function CityLabels({
       map.off('zoom', recompute)
       map.off('resize', recompute)
     }
-  }, [map, ready, baseTimezone, selectedTimezone])
+  }, [map, ready, baseCityId, selectedCityId])
 
   if (!visible) return null
 
   return (
     <div className="city-labels">
       {placed.map(({ city, x, y }) => {
-        const isBase = city.id === CITY_BY_ZONE.get(baseTimezone)?.id
-        const isSel = selectedTimezone
-          ? city.id === CITY_BY_ZONE.get(selectedTimezone)?.id
-          : false
+        const isBase = city.id === baseCityId
+        const isSel = city.id === selectedCityId
         return (
           <button
             // Selection is part of the key so the flash animation replays
@@ -134,7 +126,7 @@ export const CityLabels = memo(function CityLabels({
             style={{ left: x, top: y }}
             onClick={(e) => {
               e.stopPropagation()
-              onSelect(city.timezone, city.id)
+              onSelect(city.timezone, city.id, e.detail ? { x: e.clientX, y: e.clientY } : undefined)
             }}
             title={`${city.nameZh} · ${city.timezone}`}
           >

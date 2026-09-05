@@ -1,6 +1,6 @@
 import { memo, useMemo } from 'react'
 import { CITIES } from '../data/cities'
-import { CITY_BY_ID, CITY_BY_ZONE, zoneLabel } from '../lib/search'
+import { CITY_BY_ID, zoneLabel } from '../lib/search'
 import { describeZone } from '../lib/time'
 import { useStore, type RegionFilter } from '../store'
 import type { City } from '../types'
@@ -25,17 +25,14 @@ const FILTERS: { key: RegionFilter; label: string }[] = [
 
 export const CityGrid = memo(function CityGrid({ now, onSelect }: Props) {
   const baseTimezone = useStore((s) => s.baseTimezone)
-  const selectedTimezone = useStore((s) => s.selectedTimezone)
+  const selectedCityId = useStore((s) => s.selectedCityId)
+  const baseCityId = useStore((s) => s.baseCityId)
   const displayMode = useStore((s) => s.displayMode)
   const regionFilter = useStore((s) => s.regionFilter)
   const setRegionFilter = useStore((s) => s.setRegionFilter)
   const pinned = useStore((s) => s.pinned)
 
-  const baseLabel = zoneLabel(baseTimezone).titleZh
-  // Only one card is "the base"; siblings in the same zone are marked as
-  // sharing it rather than duplicating the badge.
-  const baseCityId = CITY_BY_ZONE.get(baseTimezone)?.id
-  const selectedCityId = selectedTimezone ? CITY_BY_ZONE.get(selectedTimezone)?.id : undefined
+  const baseLabel = zoneLabel(baseTimezone, now, baseCityId).titleZh
 
   const cities = useMemo<City[]>(() => {
     let list: City[]
