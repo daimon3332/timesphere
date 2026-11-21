@@ -1,5 +1,6 @@
 import { memo } from 'react'
 import { DAY_RELATION_ZH, formatDifference, formatDifferenceShort } from '../lib/time'
+import { lookupAbbr } from '../data/abbr-glossary'
 import type { City, CityTimeInfo, DisplayMode } from '../types'
 
 interface Props {
@@ -38,6 +39,7 @@ export const CityCard = memo(function CityCard({
         ? info.utcOffset
         : `${info.abbreviation} · ${info.utcOffset}`
 
+  const abbrName = lookupAbbr(info.abbreviation, info.offsetMinutes)?.nameZh
   const diffText = isBase ? '基准' : formatDifference(info.differenceMinutes, baseLabel)
   const dayShift = info.dayRelation !== 'today'
 
@@ -76,7 +78,7 @@ export const CityCard = memo(function CityCard({
         </span>
         <span
           className={`cc-meta tnum${displayMode === 'iana' ? ' is-iana' : ''}`}
-          title={`${city.timezone} · ${info.abbreviation} · ${info.utcOffset}`}
+          title={`${city.timezone} · ${info.abbreviation}${abbrName ? `（${abbrName}）` : ''} · ${info.utcOffset}`}
         >
           {meta}
         </span>

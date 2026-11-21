@@ -4,7 +4,8 @@ import { cityForTimezone, isNauticalZone, zoneLabel } from '../lib/search'
 import { TZ_GROUPS } from '../data/tz-groups'
 import { DAY_RELATION_ZH, describeZone, formatDifference, nextOffsetChange } from '../lib/time'
 import { useStore, type PanelAnchor } from '../store'
-import { ZoneGuideSection } from './ZoneGuideSection'
+import { explainAbbr } from '../lib/zone-names'
+import { ZoneNamesSection } from './ZoneNamesSection'
 
 interface Props {
   now: Date
@@ -108,6 +109,7 @@ export const DetailPanel = memo(function DetailPanel({ now, timezone, onClose }:
   const names = commonNames(timezone)
   const isPinned = city ? pinned.includes(city.id) : false
   const change = nextOffsetChange(timezone, now)
+  const abbrName = explainAbbr(timezone, info.abbreviation, info.offsetMinutes, now)
 
   /**
    * Positions are written straight to the element so the panel moves in the
@@ -216,7 +218,12 @@ export const DetailPanel = memo(function DetailPanel({ now, timezone, onClose }:
       <dl className="d-rows">
         <div>
           <dt>当前时区名称</dt>
-          <dd className="tnum">{info.abbreviation}</dd>
+          <dd className="tnum">
+            {info.abbreviation}
+            {abbrName.nameZh && abbrName.nameZh !== info.abbreviation && (
+              <small className="d-abbr-name">{abbrName.nameZh}</small>
+            )}
+          </dd>
         </div>
         <div>
           <dt>UTC 偏移</dt>
@@ -240,7 +247,7 @@ export const DetailPanel = memo(function DetailPanel({ now, timezone, onClose }:
         )}
       </dl>
 
-      <ZoneGuideSection now={now} timezone={timezone} baseTimezone={baseTimezone} baseName={baseLabel.titleZh} />
+      <ZoneNamesSection now={now} timezone={timezone} baseTimezone={baseTimezone} baseName={baseLabel.titleZh} />
 
       {!isBase && (
         <div className="d-compare">

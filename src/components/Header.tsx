@@ -13,10 +13,10 @@ interface Props {
   onSelect: (timezone: string, cityId?: string | null) => void
 }
 
-const MODES: { key: DisplayMode; label: string }[] = [
-  { key: 'iana', label: 'IANA' },
-  { key: 'utc', label: 'UTC 偏移' },
-  { key: 'abbreviation', label: '常见名称' },
+const MODES: { key: DisplayMode; label: string; title: string }[] = [
+  { key: 'iana', label: 'IANA', title: '卡片显示 IANA 时区标识，如 America/Los_Angeles' },
+  { key: 'utc', label: 'UTC', title: '卡片显示 UTC 偏移，如 UTC-8' },
+  { key: 'abbreviation', label: '缩写', title: '卡片显示时区缩写和偏移，如 PST · UTC-8' },
 ]
 
 export const Header = memo(function Header({ now, baseInfo, onSelect }: Props) {
@@ -78,20 +78,22 @@ export const Header = memo(function Header({ now, baseInfo, onSelect }: Props) {
           <kbd>/</kbd>
         </button>
 
-        <QuickTags onSelect={onSelect} />
+        <QuickTags now={now} onSelect={onSelect} />
 
-        <select
-          className="mode-select"
-          value={displayMode}
-          onChange={(e) => setDisplayMode(e.target.value as DisplayMode)}
-          aria-label="时区命名显示方式"
-        >
+        <div className="tm-switch display-switch" role="radiogroup" aria-label="卡片时区显示方式">
           {MODES.map((m) => (
-            <option key={m.key} value={m.key}>
+            <button
+              key={m.key}
+              role="radio"
+              aria-checked={displayMode === m.key}
+              className={`tm-btn${displayMode === m.key ? ' is-on' : ''}`}
+              title={m.title}
+              onClick={() => setDisplayMode(m.key)}
+            >
               {m.label}
-            </option>
+            </button>
           ))}
-        </select>
+        </div>
 
         <div
           className={`dst-chip${baseInfo.isDST ? ' is-active' : ''}`}

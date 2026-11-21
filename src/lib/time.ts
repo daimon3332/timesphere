@@ -108,6 +108,23 @@ function longName(timeZone: string, instant: Date): string {
   return part?.value ?? ''
 }
 
+const zhNameCache = new Map<string, Intl.DateTimeFormat>()
+
+/** CLDR's Chinese long name, e.g. 北美太平洋标准时间 — the fallback explanation. */
+export function chineseZoneName(timeZone: string, instant: Date): string {
+  let f = zhNameCache.get(timeZone)
+  if (!f) {
+    f = new Intl.DateTimeFormat('zh-CN', { timeZone, timeZoneName: 'long' })
+    zhNameCache.set(timeZone, f)
+  }
+  return f.formatToParts(instant).find((p) => p.type === 'timeZoneName')?.value ?? ''
+}
+
+/** CLDR's English long name, e.g. Pacific Standard Time. */
+export function englishZoneName(timeZone: string, instant: Date): string {
+  return longName(timeZone, instant)
+}
+
 function shortName(timeZone: string, instant: Date): string {
   const part = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'short' })
     .formatToParts(instant)
@@ -174,6 +191,7 @@ const ABBR: Record<string, [string, string]> = {
   'Asia/Jerusalem': ['IST', 'IDT'],
   'Asia/Yangon': ['MMT', 'MMT'],
   'Asia/Yekaterinburg': ['YEKT', 'YEKT'],
+  'Asia/Ulaanbaatar': ['ULAT', 'ULAT'],
   'Asia/Novosibirsk': ['NOVT', 'NOVT'],
   'Asia/Krasnoyarsk': ['KRAT', 'KRAT'],
   'Asia/Irkutsk': ['IRKT', 'IRKT'],
@@ -211,6 +229,7 @@ const ABBR: Record<string, [string, string]> = {
   'Africa/Nairobi': ['EAT', 'EAT'],
   'Africa/Casablanca': ['WEST', 'WET'],
   'Africa/Accra': ['GMT', 'GMT'],
+  'Africa/Tripoli': ['EET', 'EET'],
   'America/New_York': ['EST', 'EDT'],
   'America/Toronto': ['EST', 'EDT'],
   'America/Detroit': ['EST', 'EDT'],
@@ -232,6 +251,8 @@ const ABBR: Record<string, [string, string]> = {
   'America/Bogota': ['COT', 'COT'],
   'America/Lima': ['PET', 'PET'],
   'America/Caracas': ['VET', 'VET'],
+  'America/Manaus': ['AMT', 'AMT'],
+  'Pacific/Tahiti': ['TAHT', 'TAHT'],
   'Australia/Sydney': ['AEST', 'AEDT'],
   'Australia/Melbourne': ['AEST', 'AEDT'],
   'Australia/Hobart': ['AEST', 'AEDT'],
@@ -316,6 +337,9 @@ export function nextOffsetChange(timeZone: string, instant: Date): OffsetChange 
   return change
 }
 
+/** Zones whose CLDR name would yield a misleading invented abbreviation. */
+const NO_LETTER_ABBR = new Set(['Asia/Almaty'])
+
 /** Official names for zones that left seasonal clocks behind. */
 const FIXED_ABBR: Record<string, string> = {
   'America/Vancouver': 'PCT',
@@ -368,6 +392,8 @@ export function zoneNaming(timeZone: string, instant: Date): ZoneNaming {
   let abbreviation: string
   if (permanentDaylight) {
     abbreviation = FIXED_ABBR[timeZone] ?? formatGmtOffset(off)
+  } else if (NO_LETTER_ABBR.has(timeZone)) {
+    abbreviation = formatGmtOffset(off)
   } else if (byOffset?.[off]) {
     // Offset is exact even where DST detection is not.
     abbreviation = byOffset[off]

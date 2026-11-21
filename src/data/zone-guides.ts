@@ -1,16 +1,8 @@
 /**
- * Plain-language explainers for North American zone names (美西时间, PST,
- * PDT...). Static facts only; which variant is in force and when the next
- * switch happens are computed from the platform's tzdata at render time.
+ * Extra context for North American zones on top of the abbreviation
+ * glossary: colloquial names (美西时间), representative cities, and zones
+ * that break the regional pattern.
  */
-export interface ZoneVariant {
-  abbr: string
-  nameZh: string
-  nameEn: string
-  offset: number
-  /** US calendar rule for this half of the year */
-  periodZh: string
-}
 
 export interface ZoneGuide {
   id: string
@@ -19,9 +11,7 @@ export interface ZoneGuide {
   /** colloquial Chinese name, if any */
   colloquialZh?: string
   summaryZh: string
-  standard: ZoneVariant
-  daylight: ZoneVariant | null
-  /** zones that follow the standard/daylight pair exactly */
+  /** zones that follow the regional clock rules exactly */
   zones: string[]
   citiesZh: string
   /** zones inside the region that deviate, with what to say about them */
@@ -38,9 +28,6 @@ export interface ZoneException {
   expect?: { offset: number; since: string }
 }
 
-const US_WINTER = '11 月第一个周日 → 次年 3 月第二个周日'
-const US_SUMMER = '3 月第二个周日 → 11 月第一个周日'
-
 export const ZONE_GUIDES: ZoneGuide[] = [
   {
     id: 'PT',
@@ -49,8 +36,6 @@ export const ZONE_GUIDES: ZoneGuide[] = [
     colloquialZh: '美西时间',
     summaryZh:
       '“美西时间”是中文俗称，日常基本等同于太平洋时间，通常指美国本土西海岸（加州、俄勒冈州、华盛顿州）以及内华达州。严格说太平洋时区还包括加拿大 BC 省和墨西哥下加利福尼亚州。',
-    standard: { abbr: 'PST', nameZh: '太平洋标准时间', nameEn: 'Pacific Standard Time', offset: -480, periodZh: US_WINTER },
-    daylight: { abbr: 'PDT', nameZh: '太平洋夏令时间', nameEn: 'Pacific Daylight Time', offset: -420, periodZh: US_SUMMER },
     zones: ['America/Los_Angeles', 'America/Tijuana'],
     citiesZh: '洛杉矶、旧金山、西雅图、圣地亚哥、拉斯维加斯、波特兰',
     exceptions: {
@@ -67,8 +52,6 @@ export const ZONE_GUIDES: ZoneGuide[] = [
     titleZh: '山地时间',
     titleEn: 'Mountain Time (MT)',
     summaryZh: '美国落基山脉一带使用的时区，比太平洋时间快 1 小时。',
-    standard: { abbr: 'MST', nameZh: '山地标准时间', nameEn: 'Mountain Standard Time', offset: -420, periodZh: US_WINTER },
-    daylight: { abbr: 'MDT', nameZh: '山地夏令时间', nameEn: 'Mountain Daylight Time', offset: -360, periodZh: US_SUMMER },
     zones: ['America/Denver', 'America/Boise'],
     citiesZh: '丹佛、盐湖城、阿尔伯克基、博伊西',
     exceptions: {
@@ -87,8 +70,6 @@ export const ZONE_GUIDES: ZoneGuide[] = [
     titleZh: '中部时间',
     titleEn: 'Central Time (CT)',
     summaryZh: '美国中部大部分地区使用的时区，比美西时间快 2 小时、比美东时间慢 1 小时。',
-    standard: { abbr: 'CST', nameZh: '中部标准时间', nameEn: 'Central Standard Time', offset: -360, periodZh: US_WINTER },
-    daylight: { abbr: 'CDT', nameZh: '中部夏令时间', nameEn: 'Central Daylight Time', offset: -300, periodZh: US_SUMMER },
     zones: ['America/Chicago'],
     citiesZh: '芝加哥、达拉斯、休斯顿、新奥尔良、明尼阿波利斯',
     exceptions: {
@@ -108,8 +89,6 @@ export const ZONE_GUIDES: ZoneGuide[] = [
     colloquialZh: '美东时间',
     summaryZh:
       '“美东时间”即东部时间，指美国东部沿海及部分内陆地区使用的时区。美东与美西执行同一套夏令时规则，所以全年都比美西快 3 小时。',
-    standard: { abbr: 'EST', nameZh: '东部标准时间', nameEn: 'Eastern Standard Time', offset: -300, periodZh: US_WINTER },
-    daylight: { abbr: 'EDT', nameZh: '东部夏令时间', nameEn: 'Eastern Daylight Time', offset: -240, periodZh: US_SUMMER },
     zones: ['America/New_York', 'America/Toronto', 'America/Detroit'],
     citiesZh: '纽约、华盛顿、波士顿、亚特兰大、迈阿密、费城、底特律；加拿大多伦多、渥太华、蒙特利尔',
     exceptions: {
@@ -124,8 +103,6 @@ export const ZONE_GUIDES: ZoneGuide[] = [
     titleZh: '阿拉斯加时间',
     titleEn: 'Alaska Time (AKT)',
     summaryZh: '阿拉斯加州大部分地区使用，比美西时间慢 1 小时。',
-    standard: { abbr: 'AKST', nameZh: '阿拉斯加标准时间', nameEn: 'Alaska Standard Time', offset: -540, periodZh: US_WINTER },
-    daylight: { abbr: 'AKDT', nameZh: '阿拉斯加夏令时间', nameEn: 'Alaska Daylight Time', offset: -480, periodZh: US_SUMMER },
     zones: ['America/Anchorage', 'America/Juneau'],
     citiesZh: '安克雷奇、朱诺、费尔班克斯',
     exceptions: {},
@@ -136,8 +113,6 @@ export const ZONE_GUIDES: ZoneGuide[] = [
     titleZh: '夏威夷时间',
     titleEn: 'Hawaii Time (HST)',
     summaryZh: '夏威夷州不实行夏令时，全年 UTC-10：冬季比美西慢 2 小时，夏季慢 3 小时。',
-    standard: { abbr: 'HST', nameZh: '夏威夷标准时间', nameEn: 'Hawaii Standard Time', offset: -600, periodZh: '全年' },
-    daylight: null,
     zones: ['Pacific/Honolulu'],
     citiesZh: '檀香山（火奴鲁鲁）',
     exceptions: {},
