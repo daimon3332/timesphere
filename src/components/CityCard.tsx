@@ -11,7 +11,7 @@ interface Props {
   sharesBaseZone: boolean
   displayMode: DisplayMode
   baseLabel: string
-  onSelect: () => void
+  onSelect: (el: HTMLButtonElement) => void
 }
 
 function diffClass(minutes: number) {
@@ -46,7 +46,7 @@ export const CityCard = memo(function CityCard({
       className={`city-card${isBase ? ' is-base' : ''}${isSelected ? ' is-selected' : ''}${
         sharesBaseZone ? ' shares-base' : ''
       }`}
-      onClick={onSelect}
+      onClick={(e) => onSelect(e.currentTarget)}
       aria-label={`${city.nameZh}，当前时间 ${info.localTime}，${info.date} ${info.weekday}，${
         isBase ? '基准时区' : diffText
       }`}
@@ -63,9 +63,12 @@ export const CityCard = memo(function CityCard({
 
       <span className="cc-time tnum">{info.localTime}</span>
 
-      <span className="cc-date tnum">
-        {info.shortDate} {info.weekday}
-      </span>
+      {/* The date only earns a line when it differs from the base's. */}
+      {dayShift && (
+        <span className="cc-date is-shifted tnum">
+          {info.shortDate} {info.weekday}
+        </span>
+      )}
 
       <span className="cc-bottom">
         <span className={`cc-diff ${isBase ? 'base' : diffClass(info.differenceMinutes)}`}>

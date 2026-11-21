@@ -12,6 +12,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import url from 'node:url'
+import { unwrapAntimeridian } from './antimeridian.mjs'
 import { ZONE_GROUP_ZH, COUNTRY_ZH_OVERRIDE } from './zone-labels.mjs'
 
 const TZ_VERSION = '2026c'
@@ -229,6 +230,7 @@ fs.mkdirSync(p(ROOT, 'src/data'), { recursive: true })
 fs.mkdirSync(p(ROOT, 'public/data'), { recursive: true })
 
 // ------------------------------------------------------------ emit map data
+console.log(`unwrapped at ±180°: ${unwrapAntimeridian(tz, (f) => f.properties.tzid).join(', ')}`)
 fs.writeFileSync(p(ROOT, 'public/data/timezones.json'), JSON.stringify(tz))
 
 const countriesGeo = readJSON(p(TMP, 'countries50.json'))
@@ -443,6 +445,7 @@ for (const f of countriesGeo.features) {
     stamped++
   }
 }
+console.log(`unwrapped at ±180°: ${unwrapAntimeridian(countriesGeo, (f) => f.properties.name).join(', ')}`)
 fs.writeFileSync(p(ROOT, 'public/data/countries.json'), JSON.stringify(countriesGeo))
 console.log(`country polygons with alpha-2: ${stamped}/${countriesGeo.features.length}`)
 

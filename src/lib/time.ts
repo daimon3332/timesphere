@@ -275,9 +275,57 @@ function yearProfile(timeZone: string, year: number) {
   return hit
 }
 
+export interface OffsetChange {
+  at: Date
+  from: number
+  to: number
+}
+
+const MINUTE = 60_000
+const DAY = 86_400_000
+const STEP = 7 * DAY
+const LOOKAHEAD_STEPS = 58
+const changeCache = new Map<string, { from: number; until: number; change: OffsetChange | null }>()
+
+/**
+ * First UTC-offset change after `instant` within ~13 months, to the minute.
+ * null means the zone holds one offset for the foreseeable year — either it
+ * never observed DST or, like British Columbia since 2026, stopped changing.
+ */
+export function nextOffsetChange(timeZone: string, instant: Date): OffsetChange | null {
+  const now = instant.getTime()
+  const hit = changeCache.get(timeZone)
+  if (hit && now >= hit.from && now < hit.until) return hit.change
+
+  const t0 = Math.floor(now / MINUTE) * MINUTE
+  const from = offsetMinutes(timeZone, new Date(t0))
+  let change: OffsetChange | null = null
+  // Weekly probes: no zone changes offset twice within seven days.
+  for (let i = 1; i <= LOOKAHEAD_STEPS && !change; i++) {
+    if (offsetMinutes(timeZone, new Date(t0 + i * STEP)) === from) continue
+    let lo = t0 + (i - 1) * STEP
+    let hi = t0 + i * STEP
+    while (hi - lo > MINUTE) {
+      const mid = lo + Math.floor((hi - lo) / 2 / MINUTE) * MINUTE
+      if (offsetMinutes(timeZone, new Date(mid)) === from) lo = mid
+      else hi = mid
+    }
+    change = { at: new Date(hi), from, to: offsetMinutes(timeZone, new Date(hi)) }
+  }
+  changeCache.set(timeZone, { from: t0, until: change ? change.at.getTime() : t0 + DAY, change })
+  return change
+}
+
+/** Official names for zones that left seasonal clocks behind. */
+const FIXED_ABBR: Record<string, string> = {
+  'America/Vancouver': 'PCT',
+}
+
 export interface ZoneNaming {
   abbreviation: string
   isDST: boolean
+  /** no offset change in the coming year */
+  fixed: boolean
   longName: string
 }
 
@@ -308,11 +356,19 @@ export function zoneNaming(timeZone: string, instant: Date): ZoneNaming {
     isDST = false
   }
 
+  // A "daylight" offset kept all year round is the zone's new standard time
+  // (British Columbia, Alberta, Manitoba from 2026), not DST in effect.
+  const fixed = nextOffsetChange(timeZone, instant) === null
+  const permanentDaylight = fixed && isDST
+  if (fixed) isDST = false
+
   const off = offsetMinutes(timeZone, instant)
   const byOffset = ABBR_BY_OFFSET[timeZone]
   const curated = ABBR[timeZone]
   let abbreviation: string
-  if (byOffset?.[off]) {
+  if (permanentDaylight) {
+    abbreviation = FIXED_ABBR[timeZone] ?? formatGmtOffset(off)
+  } else if (byOffset?.[off]) {
     // Offset is exact even where DST detection is not.
     abbreviation = byOffset[off]
   } else if (curated) {
@@ -325,7 +381,7 @@ export function zoneNaming(timeZone: string, instant: Date): ZoneNaming {
       abbreviation = initials(long) || formatGmtOffset(off)
     }
   }
-  return { abbreviation, isDST, longName: long }
+  return { abbreviation, isDST, fixed, longName: long }
 }
 
 /** Compare two zones' calendar days at the same instant. */

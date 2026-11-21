@@ -53,7 +53,9 @@ for (const g of TZ_GROUPS) {
       timezone: g.zones[0]!.timezone,
       titleZh: g.titleZh,
       titleEn: g.titleEn,
-      subtitleZh: g.zones.map((z) => z.citiesZh).filter(Boolean).join(' · '),
+      subtitleZh: [g.hintZh, g.zones.map((z) => z.citiesZh).filter(Boolean).join(' · ')]
+        .filter(Boolean)
+        .join(' · '),
       candidates: g.zones.map((z) => ({
         timezone: z.timezone,
         labelZh: `${z.labelZh}${z.citiesZh ? ` · ${z.citiesZh}` : ''}`,

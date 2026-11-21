@@ -15,7 +15,7 @@ describe('persisted preferences', () => {
     const { useStore } = await load(raw)
     const state = useStore.getState()
     expect(state.baseTimezone).toBe('Asia/Shanghai')
-    expect(state.displayMode).toBe('iana')
+    expect(state.displayMode).toBe('abbreviation')
     expect(state.pinned).toContain('shanghai')
   })
 
@@ -42,5 +42,21 @@ describe('persisted preferences', () => {
   it('rejects mismatched persisted base city and timezone', async () => {
     const { useStore } = await load({ baseTimezone: 'Asia/Tokyo', baseCityId: 'beijing' })
     expect(useStore.getState().baseCityId).toBe('tokyo')
+  })
+})
+
+describe('panel anchor', () => {
+  it('anchors map selections to the city the map flies to, and keeps card anchors', async () => {
+    const { useStore } = await load({})
+    const { select } = useStore.getState()
+    select('Asia/Tokyo', 'tokyo', { kind: 'map', lngLat: [0, 0] })
+    expect(useStore.getState().anchor).toEqual({ kind: 'map', lngLat: [139.6917, 35.6895] })
+    const rect = { left: 1, top: 2, right: 3, bottom: 4 }
+    select('Asia/Tokyo', 'tokyo', { kind: 'rect', rect })
+    expect(useStore.getState().anchor).toEqual({ kind: 'rect', rect })
+    select('Etc/GMT+9', null, { kind: 'map', lngLat: [-140, 10] })
+    expect(useStore.getState().anchor).toEqual({ kind: 'map', lngLat: [-140, 10] })
+    select(null)
+    expect(useStore.getState().anchor).toBeNull()
   })
 })

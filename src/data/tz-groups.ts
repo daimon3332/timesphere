@@ -14,6 +14,8 @@ export interface TzGroup {
   /** zones this abbreviation can mean, most-expected first */
   zones: { timezone: string; labelZh: string; labelEn: string; citiesZh: string }[]
   aliases: string[]
+  /** one-line explanation shown in search results */
+  hintZh?: string
 }
 
 export const TZ_GROUPS: TzGroup[] = [
@@ -48,6 +50,7 @@ export const TZ_GROUPS: TzGroup[] = [
     code: 'PST',
     titleZh: '美国太平洋时间',
     titleEn: 'Pacific Time (US & Canada)',
+    hintZh: '即美西时间：冬季 PST UTC-8，夏季 PDT UTC-7',
     zones: [
       {
         timezone: 'America/Los_Angeles',
@@ -57,8 +60,8 @@ export const TZ_GROUPS: TzGroup[] = [
       },
       {
         timezone: 'America/Vancouver',
-        labelZh: '加拿大太平洋时间',
-        labelEn: 'Canada Pacific Time',
+        labelZh: '加拿大 BC 省（2026 起全年 UTC-7）',
+        labelEn: 'British Columbia (UTC-7 year-round since 2026)',
         citiesZh: '温哥华',
       },
     ],
@@ -80,6 +83,7 @@ export const TZ_GROUPS: TzGroup[] = [
     code: 'MST',
     titleZh: '美国山地时间',
     titleEn: 'Mountain Time (US & Canada)',
+    hintZh: '冬季 MST UTC-7，夏季 MDT UTC-6',
     zones: [
       {
         timezone: 'America/Denver',
@@ -109,6 +113,7 @@ export const TZ_GROUPS: TzGroup[] = [
     code: 'CST-US',
     titleZh: '美国中部时间',
     titleEn: 'Central Time (US & Canada)',
+    hintZh: '冬季 CST UTC-6，夏季 CDT UTC-5',
     zones: [
       {
         timezone: 'America/Chicago',
@@ -118,8 +123,8 @@ export const TZ_GROUPS: TzGroup[] = [
       },
       {
         timezone: 'America/Winnipeg',
-        labelZh: '加拿大中部时间',
-        labelEn: 'Canada Central Time',
+        labelZh: '加拿大曼尼托巴（2026 起全年 UTC-5）',
+        labelEn: 'Manitoba (UTC-5 year-round since 2026)',
         citiesZh: '温尼伯',
       },
     ],
@@ -160,6 +165,7 @@ export const TZ_GROUPS: TzGroup[] = [
     code: 'EST',
     titleZh: '美国东部时间',
     titleEn: 'Eastern Time (US & Canada)',
+    hintZh: '即美东时间：冬季 EST UTC-5，夏季 EDT UTC-4',
     zones: [
       {
         timezone: 'America/New_York',

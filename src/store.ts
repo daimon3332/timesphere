@@ -1,3 +1,4 @@
+import type { Map as MlMap } from 'maplibre-gl'
 import { create } from 'zustand'
 import { CITY_BY_ID, cityForTimezone } from './lib/search'
 import { isValidTimeZone } from './lib/time'
@@ -5,6 +6,20 @@ import type { ClockMode, DisplayMode, Region } from './types'
 
 export type MapLayer = 'timezones' | 'countries' | 'cities'
 export type RegionFilter = Region | 'all' | 'pinned'
+
+/** What the detail panel sits beside: a map position or a clicked element. */
+export type PanelAnchor =
+  | { kind: 'map'; lngLat: [number, number] }
+  | { kind: 'rect'; rect: { left: number; top: number; right: number; bottom: number } }
+
+/** Anchor beside an element, in document coordinates. */
+export function elementAnchor(el: Element): PanelAnchor {
+  const r = el.getBoundingClientRect()
+  return {
+    kind: 'rect',
+    rect: { left: r.left + scrollX, top: r.top + scrollY, right: r.right + scrollX, bottom: r.bottom + scrollY },
+  }
+}
 
 const DEFAULT_PINNED = [
   'shanghai', 'beijing', 'hong-kong', 'tokyo', 'seoul', 'singapore',
@@ -54,7 +69,9 @@ interface State {
   baseCityId: string | null
   selectedTimezone: string | null
   selectedCityId: string | null
-  clickPosition: { x: number; y: number } | null
+  /** rect anchors are in document coordinates so they survive scrolling */
+  anchor: PanelAnchor | null
+  map: MlMap | null
   displayMode: DisplayMode
   mode: ClockMode
   customDateTime: Date | null
@@ -66,7 +83,8 @@ interface State {
   searchOpen: boolean
 
   setBase: (timezone: string, cityId?: string | null) => void
-  select: (timezone: string | null, cityId?: string | null, clickPos?: { x: number; y: number } | null) => void
+  select: (timezone: string | null, cityId?: string | null, anchor?: PanelAnchor | null) => void
+  setMap: (map: MlMap | null) => void
   setDisplayMode: (m: DisplayMode) => void
   setMode: (m: ClockMode) => void
   setCustomDateTime: (d: Date | null) => void
@@ -99,8 +117,9 @@ export const useStore = create<State>((set, get) => ({
   baseCityId: cityForTimezone(persisted.baseTimezone ?? 'Asia/Shanghai', persisted.baseCityId)?.id ?? null,
   selectedTimezone: null,
   selectedCityId: null,
-  clickPosition: null,
-  displayMode: persisted.displayMode ?? 'iana',
+  anchor: null,
+  map: null,
+  displayMode: persisted.displayMode ?? 'abbreviation',
   mode: 'now',
   customDateTime: null,
   regionFilter: 'all',
@@ -112,15 +131,22 @@ export const useStore = create<State>((set, get) => ({
   setBase: (timezone, cityId = null) => {
     if (!isValidTimeZone(timezone)) return
     set({ baseTimezone: timezone, baseCityId: cityForTimezone(timezone, cityId)?.id ?? null,
-      selectedTimezone: null, selectedCityId: null, clickPosition: null })
+      selectedTimezone: null, selectedCityId: null, anchor: null })
     persist(get())
   },
-  select: (timezone, cityId = null, clickPos = null) => {
+  select: (timezone, cityId = null, anchor = null) => {
     if (timezone && !isValidTimeZone(timezone)) return
+    const city = timezone ? cityForTimezone(timezone, cityId) : undefined
     set({ selectedTimezone: timezone,
-      selectedCityId: timezone ? cityForTimezone(timezone, cityId)?.id ?? null : null,
-      clickPosition: timezone ? clickPos : null })
+      selectedCityId: city?.id ?? null,
+      // The map recentres on the selected city, so a map anchor follows the
+      // city; a clicked card keeps the panel beside the card.
+      anchor: !timezone ? null
+        : anchor?.kind === 'rect' ? anchor
+        : city ? { kind: 'map', lngLat: [city.longitude, city.latitude] }
+        : anchor })
   },
+  setMap: (map) => set({ map }),
   setDisplayMode: (m) => {
     set({ displayMode: m })
     persist(get())

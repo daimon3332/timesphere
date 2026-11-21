@@ -2,13 +2,13 @@ import { memo, useMemo } from 'react'
 import { CITIES } from '../data/cities'
 import { CITY_BY_ID, zoneLabel } from '../lib/search'
 import { describeZone } from '../lib/time'
-import { useStore, type RegionFilter } from '../store'
+import { elementAnchor, useStore, type PanelAnchor, type RegionFilter } from '../store'
 import type { City } from '../types'
 import { CityCard } from './CityCard'
 
 interface Props {
   now: Date
-  onSelect: (timezone: string, cityId?: string | null) => void
+  onSelect: (timezone: string, cityId?: string | null, anchor?: PanelAnchor | null) => void
 }
 
 const FILTERS: { key: RegionFilter; label: string }[] = [
@@ -113,7 +113,7 @@ export const CityGrid = memo(function CityGrid({ now, onSelect }: Props) {
             sharesBaseZone={c.timezone === baseTimezone && c.id !== baseCityId}
             displayMode={displayMode}
             baseLabel={baseLabel}
-            onSelect={() => onSelect(c.timezone, c.id)}
+            onSelect={(el) => onSelect(c.timezone, c.id, elementAnchor(el))}
           />
         ))}
         {regionFilter === 'pinned' && pinned.length === 0 && (

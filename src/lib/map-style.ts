@@ -76,7 +76,6 @@ export const LYR_COUNTRY_LINE = 'country-line'
 export const LYR_COUNTRY_HOVER = 'country-hover'
 export const LYR_GRID_LINE = 'grid-line'
 export const LYR_CITY_DOT = 'city-dot'
-export const LYR_CITY_PIN = 'city-pin'
 
 /** Meridian lines every 15° as the UTC ruler's visual counterpart (§29). */
 export function meridianGrid(): GeoJSON.FeatureCollection {

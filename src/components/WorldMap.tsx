@@ -8,7 +8,6 @@ import { NUMERIC_TO_ALPHA2, COUNTRY_BY_CODE } from '../data/countries'
 import {
   EMPTY_STYLE,
   LYR_CITY_DOT,
-  LYR_CITY_PIN,
   LYR_COUNTRY_FILL,
   LYR_COUNTRY_HOVER,
   LYR_COUNTRY_LINE,
@@ -26,7 +25,7 @@ import {
 } from '../lib/map-style'
 import { CITY_BY_ID, CITY_BY_ZONE, isNauticalZone, nauticalZoneAt, zoneLabel } from '../lib/search'
 import { describeZone, formatDifference, offsetMinutes } from '../lib/time'
-import { useStore } from '../store'
+import { useStore, type PanelAnchor } from '../store'
 import { CityLabels } from './CityLabels'
 import { MapTooltip, type TooltipData } from './MapTooltip'
 import { UtcRuler } from './UtcRuler'
@@ -40,7 +39,7 @@ maplibregl.setWorkerUrl(maplibreWorkerUrl)
 
 interface Props {
   now: Date
-  onSelect: (timezone: string, cityId?: string | null, clickPos?: { x: number; y: number } | null) => void
+  onSelect: (timezone: string, cityId?: string | null, anchor?: PanelAnchor | null) => void
 }
 
 export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
@@ -51,7 +50,6 @@ export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
   const [ready, setReady] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
-  const [zoom, setZoom] = useState(1.1)
 
   const baseTimezone = useStore((s) => s.baseTimezone)
   const baseCityId = useStore((s) => s.baseCityId)
@@ -60,6 +58,7 @@ export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
   const layers = useStore((s) => s.layers)
   const toggleLayer = useStore((s) => s.toggleLayer)
   const openCountryPicker = useStore((s) => s.openCountryPicker)
+  const setMap = useStore((s) => s.setMap)
 
   // Keep the latest instant/base available to map event handlers without
   // re-binding them every second.
@@ -119,6 +118,7 @@ export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
     }
     mapRef.current = map
     setMapInstance(map)
+    setMap(map)
 
     let cancelled = false
 
@@ -249,9 +249,9 @@ export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
           type: 'line',
           source: SRC_COUNTRY,
           paint: {
-            'line-color': '#3d5570',
-            'line-width': ['interpolate', ['linear'], ['zoom'], 0.6, 1, 2, 1.3, 5, 2.2],
-            'line-opacity': 1,
+            'line-color': '#4d6580',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 0.6, 0.8, 2, 1.1, 5, 1.9],
+            'line-opacity': 0.85,
           },
         })
         map.addLayer({
@@ -281,33 +281,6 @@ export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
             'circle-opacity': 0,
           },
         })
-        map.addLayer({
-          id: LYR_CITY_PIN,
-          type: 'circle',
-          source: SRC_CITY,
-          paint: {
-            'circle-radius': 7,
-            'circle-color': [
-              'case',
-              ['boolean', ['feature-state', 'base'], false],
-              '#e8464f',
-              ['boolean', ['feature-state', 'selected'], false],
-              '#2563eb',
-              'rgba(0,0,0,0)',
-            ],
-            'circle-stroke-width': [
-              'case',
-              [
-                'any',
-                ['boolean', ['feature-state', 'base'], false],
-                ['boolean', ['feature-state', 'selected'], false],
-              ],
-              2.5,
-              0,
-            ],
-            'circle-stroke-color': '#ffffff',
-          },
-        })
 
         if (cancelled) return
         if (import.meta.env.DEV) {
@@ -322,18 +295,15 @@ export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
     }
     void boot()
 
-    const onZoom = () => setZoom(map.getZoom())
-    map.on('zoom', onZoom)
-
     return () => {
       cancelled = true
-      map.off('zoom', onZoom)
       map.remove()
       mapRef.current = null
       setMapInstance(null)
+      setMap(null)
       setReady(false)
     }
-  }, [cityGeo])
+  }, [cityGeo, setMap])
 
   // Some DST transitions occur between UTC hours (for example Adelaide).
   const minuteKey = Math.floor(now.getTime() / 60000)
@@ -465,12 +435,11 @@ export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
     }
 
     const onClick = (e: maplibregl.MapMouseEvent) => {
-      // The panel is position: fixed, so it needs viewport coordinates.
-      // e.point is canvas-relative and would be offset by the header height.
-      const at = { x: e.originalEvent.clientX, y: e.originalEvent.clientY }
+      // A geographic anchor keeps the panel beside this spot while the map moves.
+      const at: PanelAnchor = { kind: 'map', lngLat: [e.lngLat.lng, e.lngLat.lat] }
       const city = cityAt(e)
       if (city) {
-        onSelect(city.properties!.timezone as string, city.properties!.id as string, at)
+        onSelect(city.properties!.timezone as string, city.properties!.id as string)
         return
       }
       const country = map.queryRenderedFeatures(e.point, { layers: [LYR_COUNTRY_FILL] }).at(0)
@@ -508,19 +477,6 @@ export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
     }
   }, [ready, onSelect, openCountryPicker])
 
-  // ------------------------------------------------------------ marker states
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || !ready) return
-    map.removeFeatureState({ source: SRC_CITY })
-    CITIES.forEach((c, i) => {
-      map.setFeatureState(
-        { source: SRC_CITY, id: i },
-        { base: c.id === baseCityId, selected: c.id === selectedCityId },
-      )
-    })
-  }, [ready, baseCityId, selectedCityId])
-
   // Highlight the selected timezone polygon.
   useEffect(() => {
     const map = mapRef.current
@@ -547,7 +503,6 @@ export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
     set(LYR_COUNTRY_LINE, layers.countries)
     set(LYR_COUNTRY_HOVER, layers.countries)
     set(LYR_CITY_DOT, layers.cities)
-    set(LYR_CITY_PIN, layers.cities)
   }, [ready, layers])
 
   // ------------------------------------------------------------ fly to select
@@ -600,7 +555,7 @@ export const WorldMap = memo(function WorldMap({ now, onSelect }: Props) {
         </div>
       )}
 
-      <UtcRuler zoom={zoom} />
+      <UtcRuler map={mapInstance} />
 
       <div className="map-layers" role="group" aria-label="地图图层">
         {(

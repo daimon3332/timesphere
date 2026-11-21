@@ -7,13 +7,12 @@ import { WorldMap } from './components/WorldMap'
 import { useNow } from './hooks/useNow'
 import { CITY_BY_ZONE } from './lib/search'
 import { describeZone, isValidTimeZone } from './lib/time'
-import { useStore } from './store'
+import { useStore, type PanelAnchor } from './store'
 
 export default function App() {
   const now = useNow()
   const baseTimezone = useStore((s) => s.baseTimezone)
   const selectedTimezone = useStore((s) => s.selectedTimezone)
-  const clickPosition = useStore((s) => s.clickPosition)
   const select = useStore((s) => s.select)
   const setBase = useStore((s) => s.setBase)
   const closeCountryPicker = useStore((s) => s.closeCountryPicker)
@@ -29,8 +28,8 @@ export default function App() {
   )
 
   const handleSelect = useCallback(
-    (timezone: string, cityId?: string | null, clickPos?: { x: number; y: number } | null) => {
-      select(timezone, cityId ?? CITY_BY_ZONE.get(timezone)?.id ?? null, clickPos ?? null)
+    (timezone: string, cityId?: string | null, anchor?: PanelAnchor | null) => {
+      select(timezone, cityId ?? CITY_BY_ZONE.get(timezone)?.id ?? null, anchor ?? null)
     },
     [select],
   )
@@ -71,7 +70,7 @@ export default function App() {
         </section>
       </main>
       {selectedTimezone && (
-        <DetailPanel now={now} timezone={selectedTimezone} onClose={() => select(null)} clickPosition={clickPosition} />
+        <DetailPanel now={now} timezone={selectedTimezone} onClose={() => select(null)} />
       )}
       <CountryZonePicker now={now} onSelect={handleSelect} />
     </div>

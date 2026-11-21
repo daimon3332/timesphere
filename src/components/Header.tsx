@@ -1,6 +1,6 @@
 import { memo, useState } from 'react'
 import { CITY_BY_ZONE, zoneLabel } from '../lib/search'
-import { formatOffset } from '../lib/time'
+import { formatOffset, nextOffsetChange } from '../lib/time'
 import { useStore } from '../store'
 import type { CityTimeInfo, DisplayMode } from '../types'
 import { CustomTimeControl } from './CustomTimeControl'
@@ -30,6 +30,7 @@ export const Header = memo(function Header({ now, baseInfo, onSelect }: Props) {
   const [pickerOpen, setPickerOpen] = useState(false)
 
   const label = zoneLabel(baseTimezone, now, baseCityId)
+  const dstFixed = !nextOffsetChange(baseTimezone, now)
   // The base chip always shows the IANA id plus live offset: it is the one
   // place where the professional detail is unconditionally useful.
   const baseSecondary = `${baseTimezone} · ${baseInfo.utcOffset}${
@@ -97,11 +98,13 @@ export const Header = memo(function Header({ now, baseInfo, onSelect }: Props) {
           title={
             baseInfo.isDST
               ? `${label.titleZh} 当前处于夏令时，偏移已自动调整为 ${baseInfo.utcOffset}`
-              : `${label.titleZh} 当前未实行夏令时`
+              : dstFixed
+                ? `${label.titleZh} 全年固定 ${baseInfo.utcOffset}，不实行夏令时`
+                : `${label.titleZh} 当前未处于夏令时，切换时会自动调整`
           }
         >
           <span className="dst-dot" aria-hidden="true" />
-          夏令时 {baseInfo.isDST ? '已生效' : '自动'}
+          {baseInfo.isDST ? '夏令时 已生效' : dstFixed ? '无夏令时' : '夏令时 未生效'}
         </div>
       </div>
 

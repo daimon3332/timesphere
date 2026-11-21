@@ -5,6 +5,7 @@ import {
   formatDifferenceShort,
   formatOffset,
   instantFromZonedWallClock,
+  nextOffsetChange,
   offsetMinutes,
   resolveZonedWallClock,
   zoneNaming,
@@ -378,5 +379,26 @@ describe('instantFromZonedWallClock', () => {
     expect(ny.localTime).toBe('21:00')
     expect(ny.dayRelation).toBe('yesterday')
     expect(tokyo.localTime).toBe('11:00')
+  })
+})
+
+describe('nextOffsetChange', () => {
+  it('finds the next US switch to the minute', () => {
+    const c = nextOffsetChange('America/Los_Angeles', new Date('2026-11-21T15:00:00Z'))
+    expect(c).toEqual({ at: new Date('2027-03-14T10:00:00Z'), from: -480, to: -420 })
+    expect(nextOffsetChange('America/New_York', SUMMER)?.at).toEqual(new Date('2026-11-01T06:00:00Z'))
+  })
+
+  it('is null for zones without seasonal clocks', () => {
+    expect(nextOffsetChange('Asia/Tokyo', SUMMER)).toBeNull()
+    expect(zoneNaming('America/Phoenix', SUMMER)).toMatchObject({ abbreviation: 'MST', isDST: false, fixed: true })
+    expect(zoneNaming('America/Los_Angeles', SUMMER).fixed).toBe(false)
+  })
+
+  // British Columbia kept UTC-7 from 2026-11-01 (tzdata 2026b). Older ICU
+  // builds still fall back to PST, so assert only where the platform knows.
+  const DEC = new Date('2026-12-01T12:00:00Z')
+  it.runIf(offsetMinutes('America/Vancouver', DEC) === -420)('treats permanent daylight as standard', () => {
+    expect(zoneNaming('America/Vancouver', DEC)).toMatchObject({ abbreviation: 'PCT', isDST: false, fixed: true })
   })
 })
